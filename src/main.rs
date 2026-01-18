@@ -73,25 +73,63 @@ struct OverlayApp {
 }
 
 impl eframe::App for OverlayApp {
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         // Verifica se há tradução para exibir
         let should_display = if let Some((text, timestamp)) = self.state.get_translation() {
             let elapsed = timestamp.elapsed();
-            if elapsed < self.display_duration {
-                // Ainda dentro do tempo de exibição
-                self.render_translation(ctx, &text, elapsed);
-                true
-            } else {
-                // Tempo esgotado
-                self.state.clear_translation();
-                false
-            }
+            elapsed < self.display_duration
         } else {
             false
         };
 
-        // Se não há nada para exibir, renderiza painel vazio
-        if !should_display {
+        if should_display {
+            // ====================================================================
+            // HÁ TRADUÇÃO: Janela visível e no tamanho normal
+            // ====================================================================
+
+            if let Some((text, timestamp)) = self.state.get_translation() {
+                let elapsed = timestamp.elapsed();
+
+                // Garante posição e tamanho corretos
+                let overlay_x = self.state.config.region_x as f32;
+                let overlay_y = (self.state.config.region_y as i32 - 250).max(0) as f32;
+                let overlay_width = self.state.config.region_width as f32;
+                let overlay_height = 200.0;
+
+                // Reposiciona
+                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                    eframe::egui::pos2(overlay_x, overlay_y),
+                ));
+
+                // Redimensiona para tamanho normal
+                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                    eframe::egui::vec2(overlay_width, overlay_height),
+                ));
+
+                // Renderiza o conteúdo
+                self.render_translation(ctx, &text, elapsed);
+
+                // Verifica se o tempo acabou
+                if elapsed >= self.display_duration {
+                    self.state.clear_translation();
+                }
+            }
+        } else {
+            // ====================================================================
+            // SEM TRADUÇÃO: Janela minúscula (1x1 pixel) e transparente
+            // ====================================================================
+
+            // Reduz para 1x1 pixel (praticamente invisível)
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                eframe::egui::vec2(1.0, 1.0),
+            ));
+
+            // Move para canto superior esquerdo (discreto)
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                eframe::egui::pos2(0.0, 0.0),
+            ));
+
+            // Painel vazio e completamente transparente
             eframe::egui::CentralPanel::default()
                 .frame(eframe::egui::Frame::none().fill(eframe::egui::Color32::TRANSPARENT))
                 .show(ctx, |_ui| {});
