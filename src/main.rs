@@ -21,20 +21,237 @@ mod tts;
 // ============================================================================
 use anyhow::Result;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use config::Config;
-use ocr::extract_text;
-use overlay::show_overlay;
-use translator::translate;
+
+// ============================================================================
+// ESTRUTURA DE ESTADO COMPARTILHADO
+// ============================================================================
+/// Estado compartilhado entre a UI (overlay) e a thread de hotkeys
+#[derive(Clone)]
+struct AppState {
+    config: Arc<Config>,
+    current_translation: Arc<Mutex<Option<String>>>,
+    translation_timestamp: Arc<Mutex<Option<std::time::Instant>>>,
+}
+
+impl AppState {
+    fn new(config: Config) -> Self {
+        AppState {
+            config: Arc::new(config),
+            current_translation: Arc::new(Mutex::new(None)),
+            translation_timestamp: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn set_translation(&self, text: String) {
+        *self.current_translation.lock().unwrap() = Some(text);
+        *self.translation_timestamp.lock().unwrap() = Some(std::time::Instant::now());
+    }
+
+    fn get_translation(&self) -> Option<(String, std::time::Instant)> {
+        let text = self.current_translation.lock().unwrap().clone()?;
+        let timestamp = self.translation_timestamp.lock().unwrap().clone()?;
+        Some((text, timestamp))
+    }
+
+    fn clear_translation(&self) {
+        *self.current_translation.lock().unwrap() = None;
+        *self.translation_timestamp.lock().unwrap() = None;
+    }
+}
+
+// ============================================================================
+// APLICAÇÃO DE OVERLAY (roda na main thread)
+// ============================================================================
+struct OverlayApp {
+    state: AppState,
+    display_duration: Duration,
+}
+
+impl eframe::App for OverlayApp {
+    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+        // Verifica se há tradução para exibir
+        let should_display = if let Some((text, timestamp)) = self.state.get_translation() {
+            let elapsed = timestamp.elapsed();
+            if elapsed < self.display_duration {
+                // Ainda dentro do tempo de exibição
+                self.render_translation(ctx, &text, elapsed);
+                true
+            } else {
+                // Tempo esgotado
+                self.state.clear_translation();
+                false
+            }
+        } else {
+            false
+        };
+
+        // Se não há nada para exibir, renderiza painel vazio
+        if !should_display {
+            eframe::egui::CentralPanel::default()
+                .frame(eframe::egui::Frame::none().fill(eframe::egui::Color32::TRANSPARENT))
+                .show(ctx, |_ui| {});
+        }
+
+        // Repaint contínuo
+        ctx.request_repaint_after(Duration::from_millis(100));
+    }
+}
+
+impl OverlayApp {
+    fn render_translation(&self, ctx: &eframe::egui::Context, text: &str, elapsed: Duration) {
+        eframe::egui::CentralPanel::default()
+            .frame(eframe::egui::Frame::none())
+            .show(ctx, |ui| {
+                // Fundo semi-transparente
+                let rect = ui.max_rect();
+                ui.painter().rect_filled(
+                    rect,
+                    0.0,
+                    eframe::egui::Color32::from_rgba_unmultiplied(0, 0, 0, 235),
+                );
+
+                ui.vertical_centered(|ui| {
+                    ui.add_space(25.0);
+
+                    // Texto da tradução
+                    ui.label(
+                        eframe::egui::RichText::new(text)
+                            .color(eframe::egui::Color32::WHITE)
+                            .size(36.0),
+                    );
+
+                    ui.add_space(15.0);
+
+                    // Contador regressivo
+                    let remaining = (self.display_duration - elapsed).as_secs();
+                    ui.label(
+                        eframe::egui::RichText::new(format!("⏱ {} segundos", remaining + 1))
+                            .color(eframe::egui::Color32::from_rgb(150, 150, 150))
+                            .size(14.0),
+                    );
+                });
+            });
+    }
+}
+
+// ============================================================================
+// THREAD DE HOTKEYS (roda em background)
+// ============================================================================
+fn start_hotkey_thread(state: AppState) {
+    thread::spawn(move || {
+        info!("⌨️  Thread de hotkeys iniciada");
+
+        let hotkey_manager = hotkey::HotkeyManager::new();
+
+        loop {
+            // Verifica se alguma hotkey foi pressionada
+            if let Some(capture_mode) = hotkey_manager.check_hotkey() {
+                info!("");
+                info!("▶️  ============================================");
+
+                match capture_mode {
+                    hotkey::CaptureMode::FullScreen => {
+                        info!("▶️  MODO: 🖥️  TELA INTEIRA");
+                    }
+                    hotkey::CaptureMode::Region => {
+                        info!("▶️  MODO: 🎯 REGIÃO CUSTOMIZADA");
+                    }
+                }
+
+                info!("▶️  ============================================");
+
+                // Processa tradução
+                let state_clone = state.clone();
+                thread::spawn(move || {
+                    if let Err(e) = process_translation_blocking(&state_clone, capture_mode) {
+                        error!("❌ Erro: {}", e);
+                    }
+                });
+
+                // Aguarda tecla ser solta
+                hotkey_manager.wait_for_key_release();
+            }
+
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
+// ============================================================================
+// PROCESSAMENTO DE TRADUÇÃO (versão bloqueante para thread)
+// ============================================================================
+fn process_translation_blocking(state: &AppState, capture_mode: hotkey::CaptureMode) -> Result<()> {
+    info!("📸 [1/5] Capturando tela...");
+
+    let screenshot_path = PathBuf::from("screenshot.png");
+
+    let _image = match capture_mode {
+        hotkey::CaptureMode::Region => {
+            info!(
+                "   🎯 Capturando região: {}x{} na posição ({}, {})",
+                state.config.region_width,
+                state.config.region_height,
+                state.config.region_x,
+                state.config.region_y
+            );
+            screenshot::capture_region(
+                &screenshot_path,
+                state.config.region_x,
+                state.config.region_y,
+                state.config.region_width,
+                state.config.region_height,
+            )?
+        }
+        hotkey::CaptureMode::FullScreen => {
+            info!("   🖥️  Capturando tela inteira");
+            screenshot::capture_screen(&screenshot_path)?
+        }
+    };
+
+    info!("✅ Screenshot capturada!");
+
+    info!("🔍 [2/5] Executando OCR...");
+    let extracted_text = ocr::extract_text(&screenshot_path)?;
+
+    if extracted_text.is_empty() {
+        info!("⚠️  Nenhum texto detectado!");
+        return Ok(());
+    }
+
+    info!("✅ Texto extraído:");
+    info!("   📝 {}", extracted_text);
+
+    info!("🌐 [3/5] Traduzindo texto...");
+
+    // Tradução precisa ser assíncrona - vamos usar tokio runtime
+    let runtime = tokio::runtime::Runtime::new()?;
+    let translated_text = runtime.block_on(async {
+        translator::translate(&extracted_text, &state.config.deepl_api_key).await
+    })?;
+
+    info!("✅ Texto traduzido:");
+    info!("   🇧🇷 {}", translated_text);
+
+    info!("🖼️  [4/5] Enviando para overlay...");
+    state.set_translation(translated_text);
+    info!("✅ Enviado!");
+
+    info!("✅ Processo completo!");
+    info!("▶️  ============================================");
+    info!("");
+
+    Ok(())
+}
 
 // ============================================================================
 // FUNÇÃO PRINCIPAL
 // ============================================================================
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Inicializa o sistema de logs
+fn main() -> Result<()> {
     env_logger::init();
 
     info!("🎮 ============================================");
@@ -45,7 +262,6 @@ async fn main() -> Result<()> {
     info!("   🎯 Jogo: Judgment (Yakuza)");
     info!("   🌐 Tradução: DeepL (EN → PT-BR)");
     info!("   🔊 Voz: ElevenLabs");
-    info!("   📸 Modo: Tela inteira");
     info!("   ⌨️  Hotkeys:");
     info!("      - Numpad - (menos) = Tela inteira");
     info!("      - Numpad + (mais)  = Região customizada");
@@ -53,144 +269,52 @@ async fn main() -> Result<()> {
 
     info!("⚙️  Configurando sistema...");
 
-    // Carrega configurações (API keys do arquivo .env)
+    // Carrega configurações
     let config = Config::load()?;
 
-    // Cria o gerenciador de hotkeys
-    let hotkey_manager = hotkey::HotkeyManager::new();
+    // Cria estado compartilhado
+    let state = AppState::new(config);
 
-    // ========================================================================
-    // INICIA O OVERLAY PERMANENTE
-    // ========================================================================
-    info!("🖼️  Iniciando overlay permanente...");
-
-    // Calcula posição do overlay baseado nas coordenadas da região
-    // O overlay vai aparecer logo acima da região de captura
-    let overlay_x = config.region_x as f32;
-    let overlay_y = (config.region_y - 250) as f32; // 250 pixels acima da legenda
-    let overlay_width = config.region_width as f32;
-    let overlay_height = 200.0; // Altura fixa do overlay
-
-    let overlay_channel =
-        overlay::start_overlay(overlay_x, overlay_y, overlay_width, overlay_height)?;
-
-    info!("✅ Overlay pronto!");
+    // Inicia thread de hotkeys
+    start_hotkey_thread(state.clone());
 
     info!("✅ Sistema pronto!");
     info!("");
     info!("🎯 Pressione Numpad - para capturar TELA INTEIRA");
     info!("🎯 Pressione Numpad + para capturar REGIÃO customizada");
     info!("🎯 Pressione Ctrl+C para sair");
-    info!("🎯 Pressione Ctrl+C para sair");
     info!("");
 
     // ========================================================================
-    // LOOP PRINCIPAL - Verifica a tecla continuamente
+    // INICIA OVERLAY NA MAIN THREAD
     // ========================================================================
-    loop {
-        // Verifica se alguma hotkey foi pressionada
-        if let Some(capture_mode) = hotkey_manager.check_hotkey() {
-            info!("");
-            info!("▶️  ============================================");
+    let overlay_x = state.config.region_x as f32;
+    let overlay_y = (state.config.region_y as i32 - 250).max(0) as f32;
+    let overlay_width = state.config.region_width as f32;
+    let overlay_height = 200.0;
 
-            // Mostra qual modo foi ativado
-            match capture_mode {
-                hotkey::CaptureMode::FullScreen => {
-                    info!("▶️  MODO: 🖥️  TELA INTEIRA");
-                }
-                hotkey::CaptureMode::Region => {
-                    info!("▶️  MODO: 🎯 REGIÃO CUSTOMIZADA");
-                }
-            }
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([overlay_width, overlay_height])
+            .with_position([overlay_x, overlay_y])
+            .with_always_on_top()
+            .with_decorations(false)
+            .with_resizable(false)
+            .with_transparent(true),
 
-            info!("▶️  ============================================");
-
-            // Processa a tradução com o modo escolhido
-            if let Err(e) = process_translation(&config, capture_mode, &overlay_channel).await {
-                error!("❌ Erro durante o processo: {}", e);
-            }
-
-            info!("▶️  ============================================");
-            info!("▶️  Pronto! Aguardando próxima ativação...");
-            info!("▶️  ============================================");
-            info!("");
-
-            // Aguarda a tecla ser solta antes de continuar
-            hotkey_manager.wait_for_key_release();
-        }
-
-        // Pausa pequena para não consumir 100% da CPU
-        thread::sleep(Duration::from_millis(50));
-    }
-}
-
-// ============================================================================
-// FUNÇÃO DE PROCESSAMENTO
-// ============================================================================
-async fn process_translation(
-    config: &Config,
-    capture_mode: hotkey::CaptureMode,
-    overlay_channel: &overlay::OverlayChannel,
-) -> Result<()> {
-    info!("📸 [1/5] Capturando tela...");
-
-    let screenshot_path = PathBuf::from("screenshot.png");
-
-    // Decide qual modo de captura usar baseado na hotkey pressionada
-    let _image = match capture_mode {
-        hotkey::CaptureMode::Region => {
-            // Modo: Captura apenas a região customizada
-            info!(
-                "   🎯 Capturando região: {}x{} na posição ({}, {})",
-                config.region_width, config.region_height, config.region_x, config.region_y
-            );
-            screenshot::capture_region(
-                &screenshot_path,
-                config.region_x,
-                config.region_y,
-                config.region_width,
-                config.region_height,
-            )?
-        }
-        hotkey::CaptureMode::FullScreen => {
-            // Modo: Captura a tela inteira
-            info!("   🖥️  Capturando tela inteira");
-            screenshot::capture_screen(&screenshot_path)?
-        }
+        ..Default::default()
     };
 
-    info!("✅ Screenshot capturada!");
+    let app = OverlayApp {
+        state: state.clone(),
+        display_duration: Duration::from_secs(5),
+    };
 
-    info!("🔍 [2/5] Executando OCR...");
-
-    let extracted_text = extract_text(&screenshot_path)?;
-
-    if extracted_text.is_empty() {
-        info!("⚠️  Nenhum texto detectado na imagem!");
-        info!("💡 Dica: Certifique-se de que há texto visível no jogo");
-        return Ok(());
-    }
-
-    info!("✅ Texto extraído:");
-    info!("   📝 {}", extracted_text);
-
-    info!("🌐 [3/5] Traduzindo texto...");
-
-    // Por enquanto, tradução fake
-    let translated_text = translate(&extracted_text, &config.deepl_api_key).await?;
-
-    info!("✅ Texto traduzido:");
-    info!("   🇧🇷 {}", translated_text);
-
-    info!("🖼️  [4/5] Enviando tradução para overlay...");
-    overlay_channel.show_text(translated_text.clone())?;
-    info!("✅ Tradução enviada ao overlay!");
-    info!("✅ Overlay exibido!");
-
-    info!("🔊 [5/5] Sintetizando voz...");
-    info!("⚠️  TTS desabilitado temporariamente");
-
-    info!("✅ Processo completo!");
+    let _ = eframe::run_native(
+        "Game Translator Overlay",
+        options,
+        Box::new(move |_cc| Ok(Box::new(app))),
+    );
 
     Ok(())
 }
