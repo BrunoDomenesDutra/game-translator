@@ -1,3 +1,5 @@
+// game-translator/src/main.rs
+
 // ============================================================================
 // GAME TRANSLATOR - Aplicação para traduzir textos de jogos em tempo real
 // ============================================================================
@@ -23,7 +25,10 @@ mod tts;
 use anyhow::Result;
 use config::Config;
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use notify::{Event, RecursiveMode, Watcher};
+use std::path::Path;
 use std::path::PathBuf;
+use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -203,7 +208,7 @@ impl eframe::App for OverlayApp {
         }
 
         // Repaint contínuo
-        ctx.request_repaint_after(Duration::from_millis(100));
+        ctx.request_repaint();
     }
 }
 
@@ -257,14 +262,7 @@ impl OverlayApp {
                             // TEXTO DA TRADUÇÃO
                             // ───────────────────────────────────────────────────
                             // Pega o tamanho da fonte do config
-                            let font_size = self
-                                .state
-                                .config
-                                .lock()
-                                .unwrap()
-                                .app_config
-                                .display
-                                .font_size;
+                            let font_size = self.state.config.lock().unwrap().app_config.font.size;
 
                             // Define espaçamento entre linhas
                             let line_spacing = font_size * 0.2; // 20% do tamanho da fonte
@@ -318,7 +316,7 @@ fn start_hotkey_thread(state: AppState) {
     thread::spawn(move || {
         info!("⌨️  Thread de hotkeys iniciada");
 
-        let hotkey_manager = hotkey::HotkeyManager::new();
+        let mut hotkey_manager = hotkey::HotkeyManager::new();
 
         loop {
             // Verifica se alguma hotkey foi pressionada
@@ -372,10 +370,98 @@ fn start_hotkey_thread(state: AppState) {
                 }
 
                 // Aguarda tecla ser solta
-                hotkey_manager.wait_for_key_release();
+                // hotkey_manager.wait_for_key_release();
             }
 
             thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
+// ============================================================================
+// THREAD DE CONFIG WATCHER (monitora mudanças no config.json)
+// ============================================================================
+fn start_config_watcher(state: AppState) {
+    thread::spawn(move || {
+        info!("👁️  Thread de monitoramento do config.json iniciada");
+
+        // Canal para receber eventos do notify
+        let (tx, rx) = channel();
+
+        // Cria o watcher
+        let mut watcher = match notify::recommended_watcher(tx) {
+            Ok(w) => w,
+            Err(e) => {
+                error!("❌ Erro ao criar watcher: {}", e);
+                return;
+            }
+        };
+
+        // Monitora o arquivo config.json
+        if let Err(e) = watcher.watch(Path::new("config.json"), RecursiveMode::NonRecursive) {
+            error!("❌ Erro ao monitorar config.json: {}", e);
+            return;
+        }
+
+        info!("✅ Monitorando config.json para mudanças...");
+
+        // Loop aguardando eventos
+        // Variável para debounce (ignorar eventos muito próximos)
+        let mut last_reload = std::time::Instant::now();
+        let debounce_duration = Duration::from_millis(500); // Ignora eventos em 500ms
+
+        // Loop aguardando eventos
+        loop {
+            match rx.recv() {
+                Ok(event_result) => {
+                    match event_result {
+                        Ok(event) => {
+                            // Verifica se foi modificação
+                            if matches!(event.kind, notify::EventKind::Modify(_)) {
+                                // Debounce: ignora se recarregou há menos de 500ms
+                                if last_reload.elapsed() < debounce_duration {
+                                    continue;
+                                }
+
+                                last_reload = std::time::Instant::now();
+
+                                info!("");
+                                info!("🔄 ============================================");
+                                info!("🔄 CONFIG.JSON MODIFICADO - RECARREGANDO");
+                                info!("🔄 ============================================");
+
+                                // Pequeno delay para garantir que o arquivo foi salvo completamente
+                                thread::sleep(Duration::from_millis(100));
+
+                                // Recarrega o config
+                                match Config::load() {
+                                    Ok(new_config) => {
+                                        let mut config = state.config.lock().unwrap();
+                                        *config = new_config;
+                                        drop(config);
+
+                                        info!("✅ Configurações recarregadas com sucesso!");
+                                        info!("   O overlay será atualizado na próxima tradução");
+                                        info!("🔄 ============================================");
+                                        info!("");
+                                    }
+                                    Err(e) => {
+                                        error!("❌ Erro ao recarregar config: {}", e);
+                                        error!("   Mantendo configurações antigas");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("❌ Erro no evento do watcher: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("❌ Erro ao receber evento: {}", e);
+                    break;
+                }
+            }
         }
     });
 }
@@ -390,31 +476,26 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
 
     let _image = match action {
         hotkey::HotkeyAction::TranslateRegion => {
-            // Faz lock UMA VEZ e reutiliza
-            let config = state.config.lock().unwrap();
-
+            let (x, y, w, h) = {
+                let config = state.config.lock().unwrap();
+                (
+                    config.region_x,
+                    config.region_y,
+                    config.region_width,
+                    config.region_height,
+                )
+            };
             info!(
                 "   🎯 Capturando região: {}x{} na posição ({}, {})",
-                config.region_width, config.region_height, config.region_x, config.region_y
+                w, h, x, y
             );
-
-            let result = screenshot::capture_region(
-                &screenshot_path,
-                config.region_x,
-                config.region_y,
-                config.region_width,
-                config.region_height,
-            )?;
-
-            drop(config); // Libera o lock
-            result
+            screenshot::capture_region(&screenshot_path, x, y, w, h)?
         }
         hotkey::HotkeyAction::TranslateFullScreen => {
             info!("   🖥️  Capturando tela inteira");
             screenshot::capture_screen(&screenshot_path)?
         }
         hotkey::HotkeyAction::SelectRegion => {
-            // Não deve chegar aqui
             anyhow::bail!("SelectRegion não deveria chamar process_translation")
         }
     };
@@ -497,6 +578,9 @@ fn main() -> Result<()> {
     // Inicia thread de hotkeys
     start_hotkey_thread(state.clone());
 
+    // Inicia thread de monitoramento do config
+    start_config_watcher(state.clone());
+
     info!("✅ Sistema pronto!");
     info!("");
     info!("🎯 Pressione Numpad - para capturar TELA INTEIRA");
@@ -550,8 +634,8 @@ fn main() -> Result<()> {
             // Carrega fonte customizada se configurado
             // ================================================================
             let config = state_for_fonts.config.lock().unwrap();
-            if config.app_config.display.use_custom_font {
-                let font_path = &config.app_config.display.font_file;
+            if config.app_config.font.font_type == "file" {
+                let font_path = &config.app_config.font.file_path;
 
                 match std::fs::read(font_path) {
                     Ok(font_data) => {

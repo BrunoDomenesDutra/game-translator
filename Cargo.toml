@@ -72,3 +72,7 @@ crossbeam-channel = "0.5"
 # === SELETOR DE REGIÃO (sem conflito com eframe) ===
 rdev = "0.5"
 minifb = "0.25"
+
+# === FILE SYSTEM WATCHER ===
+# Monitora mudanças em arquivos (ex: .env)
+notify = "6.1"

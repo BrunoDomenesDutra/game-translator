@@ -1,15 +1,37 @@
 {
   "region": {
-    "x": 584,
-    "y": 1212,
-    "width": 1462,
-    "height": 175
+    "x": 604,
+    "y": 1210,
+    "width": 1435,
+    "height": 174
   },
   "overlay": {
     "x": 265,
     "y": 975,
     "width": 1365,
-    "height": 150
+    "height": 150,
+    "background_type": "solid",
+    "background_color": [0, 0, 0, 235],
+    "background_image_path": "backgrounds/custom.png"
+  },
+  "font": {
+    "font_type": "system",
+    "system_font_name": "Arial",
+    "file_path": "fonts/Font.ttf",
+    "size": 30.0,
+    "color": [255, 255, 255, 255],
+    "shadow": {
+      "enabled": false,
+      "offset_x": 2,
+      "offset_y": 2,
+      "color": [0, 0, 0, 180],
+      "blur": 0
+    },
+    "outline": {
+      "enabled": false,
+      "width": 2,
+      "color": [0, 0, 0, 255]
+    }
   },
   "hotkeys": {
     "translate_fullscreen": "NumpadSubtract",
@@ -17,9 +39,6 @@
     "select_region": "NumpadMultiply"
   },
   "display": {
-    "overlay_duration_secs": 5,
-    "font_size": 28.0,
-    "font_file": "fonts/Font.otf",
-    "use_custom_font": true
+    "overlay_duration_secs": 10
   }
 }

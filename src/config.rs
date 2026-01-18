@@ -1,3 +1,5 @@
+// game-translator/src/config.rs
+
 // ============================================================================
 // MÓDULO CONFIG - Configurações da aplicação
 // ============================================================================
@@ -35,6 +37,9 @@ pub struct OverlayConfig {
     pub y: u32,
     pub width: u32,
     pub height: u32,
+    pub background_type: String,
+    pub background_color: [u8; 4],
+    pub background_image_path: String,
 }
 
 impl Default for OverlayConfig {
@@ -44,6 +49,9 @@ impl Default for OverlayConfig {
             y: 100,
             width: 1200,
             height: 200,
+            background_type: "solid".to_string(),
+            background_color: [0, 0, 0, 235],
+            background_image_path: "backgrounds/custom.png".to_string(),
         }
     }
 }
@@ -66,22 +74,81 @@ impl Default for HotkeyConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowConfig {
+    pub enabled: bool,
+    pub offset_x: i32,
+    pub offset_y: i32,
+    pub color: [u8; 4], // RGBA
+    pub blur: u32,
+}
+
+impl Default for ShadowConfig {
+    fn default() -> Self {
+        ShadowConfig {
+            enabled: false,
+            offset_x: 2,
+            offset_y: 2,
+            color: [0, 0, 0, 180],
+            blur: 0,
+        }
+    }
+}
+
+/// Configuração de contorno do texto
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutlineConfig {
+    pub enabled: bool,
+    pub width: u32,
+    pub color: [u8; 4], // RGBA
+}
+
+impl Default for OutlineConfig {
+    fn default() -> Self {
+        OutlineConfig {
+            enabled: false,
+            width: 2,
+            color: [0, 0, 0, 255],
+        }
+    }
+}
+
+/// Configuração completa de fonte
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FontConfig {
+    pub font_type: String, // "system", "file", "embedded"
+    pub system_font_name: String,
+    pub file_path: String,
+    pub size: f32,
+    pub color: [u8; 4], // RGBA
+    pub shadow: ShadowConfig,
+    pub outline: OutlineConfig,
+}
+
+impl Default for FontConfig {
+    fn default() -> Self {
+        FontConfig {
+            font_type: "system".to_string(),
+            system_font_name: "Arial".to_string(),
+            file_path: "fonts/default.ttf".to_string(),
+            size: 32.0,
+            color: [255, 255, 255, 255],
+            shadow: ShadowConfig::default(),
+            outline: OutlineConfig::default(),
+        }
+    }
+}
+
 /// Estrutura de configuração de exibição
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayConfig {
     pub overlay_duration_secs: u64,
-    pub font_size: f32,
-    pub font_file: String,
-    pub use_custom_font: bool,
 }
 
 impl Default for DisplayConfig {
     fn default() -> Self {
         DisplayConfig {
             overlay_duration_secs: 5,
-            font_size: 32.0,
-            font_file: "fonts/default.ttf".to_string(),
-            use_custom_font: false,
         }
     }
 }
@@ -91,6 +158,7 @@ impl Default for DisplayConfig {
 pub struct AppConfig {
     pub region: RegionConfig,
     pub overlay: OverlayConfig,
+    pub font: FontConfig, // <-- ADICIONA ESTA LINHA
     pub hotkeys: HotkeyConfig,
     pub display: DisplayConfig,
 }
@@ -100,6 +168,7 @@ impl Default for AppConfig {
         AppConfig {
             region: RegionConfig::default(),
             overlay: OverlayConfig::default(),
+            font: FontConfig::default(), // <-- ADICIONA ESTA LINHA
             hotkeys: HotkeyConfig::default(),
             display: DisplayConfig::default(),
         }
