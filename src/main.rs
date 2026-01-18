@@ -25,7 +25,7 @@ mod tts;
 use anyhow::Result;
 use config::Config;
 use crossbeam_channel::{unbounded, Receiver, Sender};
-use notify::{Event, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
@@ -502,34 +502,55 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
 
     info!("✅ Screenshot capturada!");
 
-    info!("🔍 [2/5] Executando OCR...");
-    let extracted_text = ocr::extract_text(&screenshot_path)?;
+    info!("🔍 [2/5] Executando OCR (com posições)...");
+    let ocr_result = ocr::extract_text_with_positions(&screenshot_path)?;
 
-    if extracted_text.is_empty() {
+    if ocr_result.lines.is_empty() {
         info!("⚠️  Nenhum texto detectado!");
         return Ok(());
     }
 
-    info!("✅ Texto extraído:");
-    info!("   📝 {}", extracted_text);
+    // Log das posições detectadas
+    info!("   📍 {} linhas detectadas:", ocr_result.lines.len());
+    for (i, line) in ocr_result.lines.iter().enumerate() {
+        info!(
+            "      [{}] \"{}\" @ ({:.0}, {:.0})",
+            i, line.text, line.x, line.y
+        );
+    }
 
-    // Remove quebras de linha extras para melhorar tradução
-    let extracted_text = extracted_text
-        .lines()
-        .map(|line| line.trim())
-        .collect::<Vec<&str>>()
-        .join(" ");
+    // Extrai só os textos para traduzir (mantendo a ordem!)
+    let texts_to_translate: Vec<String> = ocr_result
+        .lines
+        .iter()
+        .map(|line| line.text.clone())
+        .collect();
 
-    info!("✅ Texto limpo:");
-    info!("   📝 {}", extracted_text);
+    info!(
+        "🌐 [3/5] Traduzindo {} textos em batch...",
+        texts_to_translate.len()
+    );
 
-    info!("🌐 [3/5] Traduzindo texto...");
-
-    // Tradução precisa ser assíncrona - vamos usar tokio runtime
+    // Tradução em batch (uma única chamada para todos os textos!)
+    let api_key = state.config.lock().unwrap().deepl_api_key.clone();
     let runtime = tokio::runtime::Runtime::new()?;
-    let translated_text = runtime.block_on(async {
-        translator::translate(&extracted_text, &state.config.lock().unwrap().deepl_api_key).await
-    })?;
+    let translated_texts = runtime
+        .block_on(async { translator::translate_batch(&texts_to_translate, &api_key).await })?;
+
+    // Log das traduções
+    info!("✅ Traduções recebidas:");
+    for (i, translated) in translated_texts.iter().enumerate() {
+        let original = &ocr_result.lines[i].text;
+        if original != translated {
+            info!("      [{}] \"{}\" → \"{}\"", i, original, translated);
+        } else {
+            info!("      [{}] \"{}\" (sem mudança)", i, original);
+        }
+    }
+
+    // Por enquanto, junta tudo para o overlay existente
+    // (depois vamos mudar para múltiplos overlays)
+    let translated_text = translated_texts.join("\n");
 
     info!("✅ Texto traduzido:");
     info!("   🇧🇷 {}", translated_text);

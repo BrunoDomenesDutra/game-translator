@@ -5,7 +5,7 @@
 // ============================================================================
 
 use anyhow::{Context, Result};
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
+use image::{DynamicImage, ImageBuffer, Rgba};
 use screenshots::Screen;
 use std::path::Path;
 

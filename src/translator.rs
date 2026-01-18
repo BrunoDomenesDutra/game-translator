@@ -143,3 +143,108 @@ pub async fn translate(text: &str, api_key: &str) -> Result<String> {
 
     Ok(translated_text)
 }
+
+// ============================================================================
+// TRADUÇÃO EM BATCH (MÚLTIPLOS TEXTOS DE UMA VEZ)
+// ============================================================================
+
+/// Traduz múltiplos textos de uma vez (muito mais rápido!)
+///
+/// # Argumentos
+/// * `texts` - Lista de textos em inglês a serem traduzidos
+/// * `api_key` - Chave da API do DeepL
+///
+/// # Retorna
+/// * `Result<Vec<String>>` - Lista de textos traduzidos (na mesma ordem)
+///
+/// # Exemplo
+/// ```
+/// let textos = vec!["Hello", "World", "Game"];
+/// let traducoes = translate_batch(&textos, "api-key").await?;
+/// // traducoes = ["Olá", "Mundo", "Jogo"]
+/// ```
+pub async fn translate_batch(texts: &[String], api_key: &str) -> Result<Vec<String>> {
+    info!("🌐 Iniciando tradução em batch...");
+    info!("   📝 {} textos para traduzir", texts.len());
+
+    // Se não há textos, retorna lista vazia
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // ========================================================================
+    // VERIFICAÇÃO: Se não há API key configurada, retorna tradução fake
+    // ========================================================================
+    if api_key == "fake-api-key" || api_key.is_empty() {
+        info!("⚠️  API key do DeepL não configurada");
+        info!("   💡 Configure DEEPL_API_KEY no arquivo .env");
+
+        // Retorna traduções fake (só adiciona prefixo)
+        let fake_translations: Vec<String> =
+            texts.iter().map(|t| format!("[FAKE] {}", t)).collect();
+
+        return Ok(fake_translations);
+    }
+
+    // ========================================================================
+    // PASSO 1: Criar cliente HTTP
+    // ========================================================================
+    let client = reqwest::Client::new();
+
+    // ========================================================================
+    // PASSO 2: Montar o corpo da requisição
+    // ========================================================================
+    // DeepL aceita múltiplos textos no campo "text" (array)
+    let request_body = DeepLRequest {
+        text: texts.to_vec(), // Todos os textos de uma vez!
+        target_lang: "PT-BR".to_string(),
+        source_lang: "EN".to_string(),
+    };
+
+    info!("   🌐 Enviando {} textos para DeepL API...", texts.len());
+
+    // ========================================================================
+    // PASSO 3: Fazer requisição POST
+    // ========================================================================
+    let response = client
+        .post("https://api-free.deepl.com/v2/translate")
+        .header("Authorization", format!("DeepL-Auth-Key {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .context("Falha ao enviar requisição para DeepL")?;
+
+    // ========================================================================
+    // PASSO 4: Verificar se a API retornou sucesso
+    // ========================================================================
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        error!("❌ DeepL API retornou erro: {} - {}", status, error_text);
+        anyhow::bail!("DeepL API erro {}: {}", status, error_text);
+    }
+
+    // ========================================================================
+    // PASSO 5: Parsear a resposta
+    // ========================================================================
+    let deepl_response: DeepLResponse = response
+        .json()
+        .await
+        .context("Falha ao parsear resposta da DeepL")?;
+
+    // ========================================================================
+    // PASSO 6: Extrair todos os textos traduzidos
+    // ========================================================================
+    // A API retorna as traduções na mesma ordem que enviamos
+    let translated_texts: Vec<String> = deepl_response
+        .translations
+        .iter()
+        .map(|t| t.text.clone())
+        .collect();
+
+    info!("✅ Tradução em batch concluída!");
+    info!("   🇧🇷 {} textos traduzidos", translated_texts.len());
+
+    Ok(translated_texts)
+}

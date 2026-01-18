@@ -39,9 +39,14 @@ reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# === OCR ===
-# Wrapper para o Tesseract OCR
-# leptess = "0.14"
+# === WINDOWS OCR NATIVO ===
+windows = { version = "0.58", features = [
+    "Media_Ocr",
+    "Graphics_Imaging",
+    "Storage_Streams",
+    "Foundation",
+    "Foundation_Collections",
+] }
 
 # === LOGGING ===
 # Para debug e mensagens de erro

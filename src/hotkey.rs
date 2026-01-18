@@ -6,7 +6,6 @@
 
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::collections::HashSet;
-use std::thread;
 use std::time::{Duration, Instant};
 
 /// Estrutura que gerencia hotkeys
