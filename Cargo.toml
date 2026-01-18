@@ -68,3 +68,7 @@ egui = "0.28"
 
 # === COMUNICAÇÃO ENTRE THREADS ===
 crossbeam-channel = "0.5"
+
+# === SELETOR DE REGIÃO (sem conflito com eframe) ===
+rdev = "0.5"
+minifb = "0.25"
