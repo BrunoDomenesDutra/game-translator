@@ -1,0 +1,12 @@
+# Build artifacts
+/target
+
+# Screenshots temporárias
+screenshot.png
+*.png
+
+# Variáveis de ambiente (API KEYS!)
+.env
+
+# Logs
+*.log

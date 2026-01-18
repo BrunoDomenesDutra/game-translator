@@ -1,0 +1,70 @@
+[package]
+name = "game-translator"
+version = "0.1.0"
+edition = "2021"
+
+# Configurações de compilação para melhor performance
+[profile.release]
+opt-level = 3        # Otimização máxima (como minify no JS)
+lto = true           # Link Time Optimization
+codegen-units = 1    # Melhor otimização (compila mais devagar, mas executa mais rápido)
+
+[dependencies]
+# === CORE: Runtime assíncrono ===
+# Equivalente ao "event loop" do Node.js
+# Permite usar async/await
+tokio = { version = "1.35", features = ["full"] }
+
+# === CAPTURA DE TELA ===
+# Biblioteca para tirar screenshots
+screenshots = "0.6"
+
+# === HOTKEYS GLOBAIS ===
+# Detecta teclas pressionadas mesmo quando o jogo está em foco
+# global-hotkey = "0.5"
+device_query = "2.1"      # <-- ADICIONAR ESSA LINHA
+
+# === GERENCIAMENTO DE JANELAS ===
+# Necessário para o sistema de hotkeys funcionar
+winit = "0.29"
+
+# === HTTP CLIENT ===
+# Para chamar APIs (DeepL, ElevenLabs)
+# Equivalente ao axios do Node.js
+reqwest = { version = "0.11", features = ["json"] }
+
+# === JSON ===
+# Serialização/deserialização de JSON
+# Equivalente ao JSON.parse() e JSON.stringify()
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# === OCR ===
+# Wrapper para o Tesseract OCR
+# leptess = "0.14"
+
+# === LOGGING ===
+# Para debug e mensagens de erro
+# Equivalente ao console.log() mas mais robusto
+env_logger = "0.11"
+log = "0.4"
+
+# === ERROS ===
+# Facilita tratamento de erros
+anyhow = "1.0"
+
+# === IMAGENS ===
+# Manipulação de imagens
+image = "0.24"
+
+# === VARIÁVEIS DE AMBIENTE ===
+# Para ler API keys de forma segura do arquivo .env
+dotenv = "0.15"
+
+# === OVERLAY / UI ===
+# Framework para criar interfaces gráficas simples e overlays
+eframe = "0.28"
+egui = "0.28"
+
+# === COMUNICAÇÃO ENTRE THREADS ===
+crossbeam-channel = "0.5"
