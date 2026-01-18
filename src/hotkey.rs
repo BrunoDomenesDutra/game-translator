@@ -13,11 +13,13 @@ pub struct HotkeyManager {
 
 /// Tipo de captura solicitada pelo usuário
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CaptureMode {
+pub enum HotkeyAction {
     /// Captura a tela inteira
-    FullScreen,
+    TranslateFullScreen,
     /// Captura apenas a região customizada
-    Region,
+    TranslateRegion,
+    /// Abre o seletor de região
+    SelectRegion,
 }
 
 impl HotkeyManager {
@@ -37,17 +39,22 @@ impl HotkeyManager {
     /// # Retorna
     /// * `Some(CaptureMode)` - Se alguma hotkey foi pressionada
     /// * `None` - Se nenhuma hotkey está pressionada
-    pub fn check_hotkey(&self) -> Option<CaptureMode> {
+    pub fn check_hotkey(&self) -> Option<HotkeyAction> {
         let keys = self.device_state.get_keys();
+
+        // Verifica Numpad * (selecionar região)
+        if keys.contains(&Keycode::NumpadMultiply) {
+            return Some(HotkeyAction::SelectRegion);
+        }
 
         // Verifica Numpad + (região customizada)
         if keys.contains(&Keycode::NumpadAdd) {
-            return Some(CaptureMode::Region);
+            return Some(HotkeyAction::TranslateRegion);
         }
 
         // Verifica Numpad - (tela inteira)
         if keys.contains(&Keycode::NumpadSubtract) {
-            return Some(CaptureMode::FullScreen);
+            return Some(HotkeyAction::TranslateFullScreen);
         }
 
         None

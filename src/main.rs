@@ -12,6 +12,7 @@ mod config;
 mod hotkey;
 mod ocr;
 mod overlay;
+mod region_selector;
 mod screenshot;
 mod translator;
 mod tts;
@@ -90,11 +91,11 @@ impl eframe::App for OverlayApp {
             if let Some((text, timestamp)) = self.state.get_translation() {
                 let elapsed = timestamp.elapsed();
 
-                // Garante posição e tamanho corretos
-                let overlay_x = self.state.config.region_x as f32;
-                let overlay_y = (self.state.config.region_y as i32 - 250).max(0) as f32;
-                let overlay_width = self.state.config.region_width as f32;
-                let overlay_height = 200.0;
+                // Garante posição e tamanho corretos (do config.json)
+                let overlay_x = self.state.config.app_config.overlay.x as f32;
+                let overlay_y = self.state.config.app_config.overlay.y as f32;
+                let overlay_width = self.state.config.app_config.overlay.width as f32;
+                let overlay_height = self.state.config.app_config.overlay.height as f32;
 
                 // Reposiciona
                 ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
@@ -142,36 +143,87 @@ impl eframe::App for OverlayApp {
 
 impl OverlayApp {
     fn render_translation(&self, ctx: &eframe::egui::Context, text: &str, elapsed: Duration) {
+        // ═══════════════════════════════════════════════════════════
+        // PAINEL CENTRAL - A "tela" onde tudo será desenhado
+        // ═══════════════════════════════════════════════════════════
         eframe::egui::CentralPanel::default()
-            .frame(eframe::egui::Frame::none())
+            .frame(eframe::egui::Frame::none()) // Remove bordas padrão
             .show(ctx, |ui| {
-                // Fundo semi-transparente
-                let rect = ui.max_rect();
+                // ───────────────────────────────────────────────────
+                // FUNDO PRETO SEMI-TRANSPARENTE
+                // ───────────────────────────────────────────────────
+                let rect = ui.max_rect(); // Pega o tamanho total da janela
+
                 ui.painter().rect_filled(
-                    rect,
-                    0.0,
-                    eframe::egui::Color32::from_rgba_unmultiplied(0, 0, 0, 235),
+                    rect, // Onde desenhar (janela inteira)
+                    0.0,  // Raio das bordas arredondadas (0 = quadrado)
+                    eframe::egui::Color32::from_rgba_unmultiplied(
+                        0,   // Red (0 = sem vermelho)
+                        0,   // Green (0 = sem verde)
+                        0,   // Blue (0 = sem azul)
+                        235, // Alpha (0-255, onde 255 = opaco, 0 = invisível)
+                    ),
                 );
 
-                ui.vertical_centered(|ui| {
-                    ui.add_space(25.0);
+                // ═══════════════════════════════════════════════════════════
+                // LAYOUT VERTICAL - Organiza elementos de cima para baixo
+                // ═══════════════════════════════════════════════════════════
+                ui.vertical(|ui| {
+                    // ───────────────────────────────────────────────────
+                    // MARGEM SUPERIOR (espaço do topo da janela)
+                    // ───────────────────────────────────────────────────
+                    ui.add_space(20.0); // 20 pixels de espaço vazio no topo
 
-                    // Texto da tradução
-                    ui.label(
-                        eframe::egui::RichText::new(text)
-                            .color(eframe::egui::Color32::WHITE)
-                            .size(36.0),
-                    );
+                    // ═══════════════════════════════════════════════════════════
+                    // LAYOUT HORIZONTAL - Cria padding esquerdo e direito
+                    // ═══════════════════════════════════════════════════════════
+                    ui.horizontal(|ui| {
+                        // ───────────────────────────────────────────────────
+                        // PADDING ESQUERDO (margem lateral esquerda)
+                        // ───────────────────────────────────────────────────
+                        ui.add_space(25.0); // 25 pixels vazios à esquerda
 
-                    ui.add_space(15.0);
+                        // ═══════════════════════════════════════════════════════════
+                        // CONTEÚDO PRINCIPAL - Coluna interna com texto
+                        // ═══════════════════════════════════════════════════════════
+                        ui.vertical(|ui| {
+                            // ───────────────────────────────────────────────────
+                            // TEXTO DA TRADUÇÃO
+                            // ───────────────────────────────────────────────────
+                            ui.add(
+                                eframe::egui::Label::new(
+                                    eframe::egui::RichText::new(text)
+                                        .color(eframe::egui::Color32::WHITE) // Cor do texto
+                                        .size(30.0), // Tamanho da fonte em pixels
+                                )
+                                .wrap_mode(eframe::egui::TextWrapMode::Wrap), // Quebra linha em palavras
+                            );
 
-                    // Contador regressivo
-                    let remaining = (self.display_duration - elapsed).as_secs();
-                    ui.label(
-                        eframe::egui::RichText::new(format!("⏱ {} segundos", remaining + 1))
-                            .color(eframe::egui::Color32::from_rgb(150, 150, 150))
-                            .size(14.0),
-                    );
+                            // ───────────────────────────────────────────────────
+                            // ESPAÇO ENTRE TEXTO E CONTADOR
+                            // ───────────────────────────────────────────────────
+                            ui.add_space(10.0); // 10 pixels entre tradução e contador
+
+                            // ───────────────────────────────────────────────────
+                            // CONTADOR REGRESSIVO
+                            // ───────────────────────────────────────────────────
+                            let remaining = (self.display_duration - elapsed).as_secs();
+
+                            ui.label(
+                                eframe::egui::RichText::new(format!(
+                                    "⏱ {} segundos",
+                                    remaining + 1
+                                ))
+                                .color(eframe::egui::Color32::from_rgb(150, 150, 150)) // Cinza
+                                .size(14.0), // Fonte menor que o texto principal
+                            );
+                        });
+
+                        // ───────────────────────────────────────────────────
+                        // PADDING DIREITO (margem lateral direita)
+                        // ───────────────────────────────────────────────────
+                        ui.add_space(25.0); // 25 pixels vazios à direita
+                    });
                 });
             });
     }
@@ -188,28 +240,53 @@ fn start_hotkey_thread(state: AppState) {
 
         loop {
             // Verifica se alguma hotkey foi pressionada
-            if let Some(capture_mode) = hotkey_manager.check_hotkey() {
-                info!("");
-                info!("▶️  ============================================");
+            if let Some(action) = hotkey_manager.check_hotkey() {
+                match action {
+                    hotkey::HotkeyAction::SelectRegion => {
+                        info!("");
+                        info!("🎯 ============================================");
+                        info!("🎯 ABRINDO SELETOR DE REGIÃO");
+                        info!("🎯 ============================================");
 
-                match capture_mode {
-                    hotkey::CaptureMode::FullScreen => {
-                        info!("▶️  MODO: 🖥️  TELA INTEIRA");
+                        // Abre seletor (precisa ser na main thread - vamos resolver isso)
+                        // Por enquanto, só avisa
+                        info!("⚠️  Seletor de região em desenvolvimento...");
                     }
-                    hotkey::CaptureMode::Region => {
+
+                    hotkey::HotkeyAction::TranslateFullScreen => {
+                        info!("");
+                        info!("▶️  ============================================");
+                        info!("▶️  MODO: 🖥️  TELA INTEIRA");
+                        info!("▶️  ============================================");
+
+                        let state_clone = state.clone();
+                        thread::spawn(move || {
+                            if let Err(e) = process_translation_blocking(
+                                &state_clone,
+                                hotkey::HotkeyAction::TranslateFullScreen,
+                            ) {
+                                error!("❌ Erro: {}", e);
+                            }
+                        });
+                    }
+
+                    hotkey::HotkeyAction::TranslateRegion => {
+                        info!("");
+                        info!("▶️  ============================================");
                         info!("▶️  MODO: 🎯 REGIÃO CUSTOMIZADA");
+                        info!("▶️  ============================================");
+
+                        let state_clone = state.clone();
+                        thread::spawn(move || {
+                            if let Err(e) = process_translation_blocking(
+                                &state_clone,
+                                hotkey::HotkeyAction::TranslateRegion,
+                            ) {
+                                error!("❌ Erro: {}", e);
+                            }
+                        });
                     }
                 }
-
-                info!("▶️  ============================================");
-
-                // Processa tradução
-                let state_clone = state.clone();
-                thread::spawn(move || {
-                    if let Err(e) = process_translation_blocking(&state_clone, capture_mode) {
-                        error!("❌ Erro: {}", e);
-                    }
-                });
 
                 // Aguarda tecla ser solta
                 hotkey_manager.wait_for_key_release();
@@ -223,13 +300,13 @@ fn start_hotkey_thread(state: AppState) {
 // ============================================================================
 // PROCESSAMENTO DE TRADUÇÃO (versão bloqueante para thread)
 // ============================================================================
-fn process_translation_blocking(state: &AppState, capture_mode: hotkey::CaptureMode) -> Result<()> {
+fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) -> Result<()> {
     info!("📸 [1/5] Capturando tela...");
 
     let screenshot_path = PathBuf::from("screenshot.png");
 
-    let _image = match capture_mode {
-        hotkey::CaptureMode::Region => {
+    let _image = match action {
+        hotkey::HotkeyAction::TranslateRegion => {
             info!(
                 "   🎯 Capturando região: {}x{} na posição ({}, {})",
                 state.config.region_width,
@@ -245,9 +322,13 @@ fn process_translation_blocking(state: &AppState, capture_mode: hotkey::CaptureM
                 state.config.region_height,
             )?
         }
-        hotkey::CaptureMode::FullScreen => {
+        hotkey::HotkeyAction::TranslateFullScreen => {
             info!("   🖥️  Capturando tela inteira");
             screenshot::capture_screen(&screenshot_path)?
+        }
+        hotkey::HotkeyAction::SelectRegion => {
+            // Não deve chegar aqui
+            anyhow::bail!("SelectRegion não deveria chamar process_translation")
         }
     };
 
@@ -326,10 +407,14 @@ fn main() -> Result<()> {
     // ========================================================================
     // INICIA OVERLAY NA MAIN THREAD
     // ========================================================================
-    let overlay_x = state.config.region_x as f32;
-    let overlay_y = (state.config.region_y as i32 - 250).max(0) as f32;
-    let overlay_width = state.config.region_width as f32;
-    let overlay_height = 200.0;
+    let overlay_x = state.config.app_config.overlay.x as f32;
+    let overlay_y = state.config.app_config.overlay.y as f32;
+    let overlay_width = state.config.app_config.overlay.width as f32;
+    let overlay_height = state.config.app_config.overlay.height as f32;
+
+    info!("🖼️  Configurando overlay:");
+    info!("   Posição: ({}, {})", overlay_x, overlay_y);
+    info!("   Tamanho: {}x{}", overlay_width, overlay_height);
 
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
@@ -343,15 +428,57 @@ fn main() -> Result<()> {
         ..Default::default()
     };
 
-    let app = OverlayApp {
-        state: state.clone(),
-        display_duration: Duration::from_secs(5),
-    };
+    // ========================================================================
+    // CONFIGURAÇÃO E CARREGAMENTO DE FONTES
+    // ========================================================================
+    let state_for_fonts = state.clone();
+    let display_duration = state.config.app_config.display.overlay_duration_secs;
 
     let _ = eframe::run_native(
         "Game Translator Overlay",
         options,
-        Box::new(move |_cc| Ok(Box::new(app))),
+        Box::new(move |cc| {
+            // ================================================================
+            // Carrega fonte customizada se configurado
+            // ================================================================
+            if state_for_fonts.config.app_config.display.use_custom_font {
+                let font_path = &state_for_fonts.config.app_config.display.font_file;
+
+                match std::fs::read(font_path) {
+                    Ok(font_data) => {
+                        info!("✅ Carregando fonte customizada: {}", font_path);
+
+                        let mut fonts = eframe::egui::FontDefinitions::default();
+
+                        // Adiciona a fonte customizada
+                        fonts.font_data.insert(
+                            "custom_font".to_owned(),
+                            eframe::egui::FontData::from_owned(font_data),
+                        );
+
+                        // Define como fonte padrão
+                        fonts.families.insert(
+                            eframe::egui::FontFamily::Proportional,
+                            vec!["custom_font".to_owned()],
+                        );
+
+                        cc.egui_ctx.set_fonts(fonts);
+                    }
+                    Err(e) => {
+                        warn!("⚠️  Erro ao carregar fonte {}: {}", font_path, e);
+                        warn!("   Usando fonte padrão do sistema");
+                    }
+                }
+            }
+
+            // ================================================================
+            // Cria o app do overlay
+            // ================================================================
+            Ok(Box::new(OverlayApp {
+                state: state_for_fonts.clone(),
+                display_duration: Duration::from_secs(display_duration),
+            }) as Box<dyn eframe::App>)
+        }),
     );
 
     Ok(())

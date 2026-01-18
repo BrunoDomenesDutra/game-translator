@@ -1,0 +1,25 @@
+{
+  "region": {
+    "x": 600,
+    "y": 1200,
+    "width": 1400,
+    "height": 230
+  },
+  "overlay": {
+    "x": 265,
+    "y": 975,
+    "width": 1365,
+    "height": 150
+  },
+  "hotkeys": {
+    "translate_fullscreen": "NumpadSubtract",
+    "translate_region": "NumpadAdd",
+    "select_region": "NumpadMultiply"
+  },
+  "display": {
+    "overlay_duration_secs": 5,
+    "font_size": 28.0,
+    "font_file": "fonts/Font.otf",
+    "use_custom_font": true
+  }
+}
