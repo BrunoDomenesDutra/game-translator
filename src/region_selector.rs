@@ -5,6 +5,7 @@
 use anyhow::Result;
 use eframe::egui;
 use screenshots::Screen;
+use std::sync::{Arc, Mutex};
 
 /// Coordenadas da região selecionada
 #[derive(Debug, Clone)]
@@ -31,11 +32,12 @@ struct RegionSelectorApp {
 
     /// Se deve fechar a janela
     should_close: bool,
+
+    result_holder: Option<Arc<Mutex<Option<SelectedRegion>>>>,
 }
 
 impl RegionSelectorApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Captura screenshot de fundo
         let background_texture = Self::capture_background(&cc.egui_ctx);
 
         RegionSelectorApp {
@@ -44,6 +46,7 @@ impl RegionSelectorApp {
             current_pos: None,
             selected_region: None,
             should_close: false,
+            result_holder: None, // <-- NOVO
         }
     }
 
@@ -221,6 +224,11 @@ impl eframe::App for RegionSelectorApp {
         // FECHA A JANELA SE NECESSÁRIO
         // ====================================================================
         if self.should_close {
+            // Salva o resultado antes de fechar
+            if let Some(holder) = &self.result_holder {
+                *holder.lock().unwrap() = self.selected_region.clone();
+            }
+
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -238,6 +246,10 @@ pub fn select_region() -> Result<Option<SelectedRegion>> {
     let width = screen.display_info.width as f32;
     let height = screen.display_info.height as f32;
 
+    // Arc<Mutex> para compartilhar o resultado entre a app e esta função
+    let result = Arc::new(Mutex::new(None));
+    let result_clone = result.clone();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([width, height])
@@ -250,18 +262,18 @@ pub fn select_region() -> Result<Option<SelectedRegion>> {
         ..Default::default()
     };
 
-    let selected_region: Option<SelectedRegion> = None;
-
     let _ = eframe::run_native(
         "Seleção de Região",
         options,
         Box::new(move |cc| {
-            let app = RegionSelectorApp::new(cc);
+            let mut app = RegionSelectorApp::new(cc);
+            app.result_holder = Some(result_clone);
             Ok(Box::new(app) as Box<dyn eframe::App>)
         }),
     );
 
-    // TODO: Precisamos capturar o resultado da seleção
+    // Recupera o resultado após a janela fechar
+    let final_result = result.lock().unwrap().clone();
 
-    Ok(selected_region)
+    Ok(final_result)
 }

@@ -21,12 +21,22 @@ mod tts;
 // IMPORTS
 // ============================================================================
 use anyhow::Result;
+use config::Config;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+// ============================================================================
+// COMANDOS ENTRE THREADS
+// ============================================================================
 
-use config::Config;
+/// Comandos que podem ser enviados da thread de hotkeys para a main thread
+#[derive(Debug, Clone)]
+enum AppCommand {
+    /// Abre o seletor de região
+    OpenRegionSelector,
+}
 
 // ============================================================================
 // ESTRUTURA DE ESTADO COMPARTILHADO
@@ -34,17 +44,19 @@ use config::Config;
 /// Estado compartilhado entre a UI (overlay) e a thread de hotkeys
 #[derive(Clone)]
 struct AppState {
-    config: Arc<Config>,
+    config: Arc<Mutex<Config>>, // <-- Agora é Mutex para poder recarregar
     current_translation: Arc<Mutex<Option<String>>>,
     translation_timestamp: Arc<Mutex<Option<std::time::Instant>>>,
+    command_sender: Sender<AppCommand>, // <-- Canal de comandos
 }
 
 impl AppState {
-    fn new(config: Config) -> Self {
+    fn new(config: Config, command_sender: Sender<AppCommand>) -> Self {
         AppState {
-            config: Arc::new(config),
+            config: Arc::new(Mutex::new(config)),
             current_translation: Arc::new(Mutex::new(None)),
             translation_timestamp: Arc::new(Mutex::new(None)),
+            command_sender,
         }
     }
 
@@ -71,10 +83,62 @@ impl AppState {
 struct OverlayApp {
     state: AppState,
     display_duration: Duration,
+    command_receiver: Receiver<AppCommand>,
 }
 
 impl eframe::App for OverlayApp {
     fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+        // ====================================================================
+        // PROCESSA COMANDOS RECEBIDOS
+        // ====================================================================
+        while let Ok(command) = self.command_receiver.try_recv() {
+            match command {
+                AppCommand::OpenRegionSelector => {
+                    info!("🎯 Abrindo seletor de região...");
+
+                    // Esconde o overlay temporariamente
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                        eframe::egui::vec2(1.0, 1.0),
+                    ));
+
+                    // Abre o seletor de região
+                    match region_selector::select_region() {
+                        Ok(Some(selected)) => {
+                            info!(
+                                "✅ Região selecionada: {}x{} na posição ({}, {})",
+                                selected.width, selected.height, selected.x, selected.y
+                            );
+
+                            // Atualiza o config
+                            let mut config = self.state.config.lock().unwrap();
+                            if let Err(e) = config.app_config.update_region(
+                                selected.x,
+                                selected.y,
+                                selected.width,
+                                selected.height,
+                            ) {
+                                error!("❌ Erro ao salvar região: {}", e);
+                            } else {
+                                info!("💾 Região salva no config.json!");
+
+                                // Atualiza os atalhos de retrocompatibilidade
+                                config.region_x = selected.x;
+                                config.region_y = selected.y;
+                                config.region_width = selected.width;
+                                config.region_height = selected.height;
+                            }
+                        }
+                        Ok(None) => {
+                            info!("❌ Seleção cancelada");
+                        }
+                        Err(e) => {
+                            error!("❌ Erro no seletor: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+
         // Verifica se há tradução para exibir
         let should_display = if let Some((text, timestamp)) = self.state.get_translation() {
             let elapsed = timestamp.elapsed();
@@ -92,10 +156,12 @@ impl eframe::App for OverlayApp {
                 let elapsed = timestamp.elapsed();
 
                 // Garante posição e tamanho corretos (do config.json)
-                let overlay_x = self.state.config.app_config.overlay.x as f32;
-                let overlay_y = self.state.config.app_config.overlay.y as f32;
-                let overlay_width = self.state.config.app_config.overlay.width as f32;
-                let overlay_height = self.state.config.app_config.overlay.height as f32;
+                let config = self.state.config.lock().unwrap();
+                let overlay_x = config.app_config.overlay.x as f32;
+                let overlay_y = config.app_config.overlay.y as f32;
+                let overlay_width = config.app_config.overlay.width as f32;
+                let overlay_height = config.app_config.overlay.height as f32;
+                drop(config); // Libera o lock
 
                 // Reposiciona
                 ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
@@ -190,33 +256,49 @@ impl OverlayApp {
                             // ───────────────────────────────────────────────────
                             // TEXTO DA TRADUÇÃO
                             // ───────────────────────────────────────────────────
+                            // Pega o tamanho da fonte do config
+                            let font_size = self
+                                .state
+                                .config
+                                .lock()
+                                .unwrap()
+                                .app_config
+                                .display
+                                .font_size;
+
+                            // Define espaçamento entre linhas
+                            let line_spacing = font_size * 0.2; // 20% do tamanho da fonte
+
+                            ui.spacing_mut().item_spacing.y = line_spacing;
+
                             ui.add(
                                 eframe::egui::Label::new(
                                     eframe::egui::RichText::new(text)
-                                        .color(eframe::egui::Color32::WHITE) // Cor do texto
-                                        .size(30.0), // Tamanho da fonte em pixels
+                                        .color(eframe::egui::Color32::WHITE)
+                                        .size(font_size)
+                                        .line_height(Some(font_size * 1.2)), // 1.2x o tamanho da fonte
                                 )
-                                .wrap_mode(eframe::egui::TextWrapMode::Wrap), // Quebra linha em palavras
+                                .wrap_mode(eframe::egui::TextWrapMode::Wrap),
                             );
 
                             // ───────────────────────────────────────────────────
                             // ESPAÇO ENTRE TEXTO E CONTADOR
                             // ───────────────────────────────────────────────────
-                            ui.add_space(10.0); // 10 pixels entre tradução e contador
+                            // ui.add_space(5.0); // 10 pixels entre tradução e contador
 
                             // ───────────────────────────────────────────────────
                             // CONTADOR REGRESSIVO
                             // ───────────────────────────────────────────────────
-                            let remaining = (self.display_duration - elapsed).as_secs();
+                            // let remaining = (self.display_duration - elapsed).as_secs();
 
-                            ui.label(
-                                eframe::egui::RichText::new(format!(
-                                    "⏱ {} segundos",
-                                    remaining + 1
-                                ))
-                                .color(eframe::egui::Color32::from_rgb(150, 150, 150)) // Cinza
-                                .size(14.0), // Fonte menor que o texto principal
-                            );
+                            // ui.label(
+                            //     eframe::egui::RichText::new(format!(
+                            //         "⏱ {} segundos",
+                            //         remaining + 1
+                            //     ))
+                            //     .color(eframe::egui::Color32::from_rgb(150, 150, 150)) // Cinza
+                            //     .size(14.0), // Fonte menor que o texto principal
+                            // );
                         });
 
                         // ───────────────────────────────────────────────────
@@ -245,12 +327,13 @@ fn start_hotkey_thread(state: AppState) {
                     hotkey::HotkeyAction::SelectRegion => {
                         info!("");
                         info!("🎯 ============================================");
-                        info!("🎯 ABRINDO SELETOR DE REGIÃO");
+                        info!("🎯 SOLICITANDO ABERTURA DO SELETOR DE REGIÃO");
                         info!("🎯 ============================================");
 
-                        // Abre seletor (precisa ser na main thread - vamos resolver isso)
-                        // Por enquanto, só avisa
-                        info!("⚠️  Seletor de região em desenvolvimento...");
+                        // Envia comando para main thread abrir o seletor
+                        if let Err(e) = state.command_sender.send(AppCommand::OpenRegionSelector) {
+                            error!("❌ Erro ao enviar comando: {}", e);
+                        }
                     }
 
                     hotkey::HotkeyAction::TranslateFullScreen => {
@@ -307,20 +390,24 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
 
     let _image = match action {
         hotkey::HotkeyAction::TranslateRegion => {
+            // Faz lock UMA VEZ e reutiliza
+            let config = state.config.lock().unwrap();
+
             info!(
                 "   🎯 Capturando região: {}x{} na posição ({}, {})",
-                state.config.region_width,
-                state.config.region_height,
-                state.config.region_x,
-                state.config.region_y
+                config.region_width, config.region_height, config.region_x, config.region_y
             );
-            screenshot::capture_region(
+
+            let result = screenshot::capture_region(
                 &screenshot_path,
-                state.config.region_x,
-                state.config.region_y,
-                state.config.region_width,
-                state.config.region_height,
-            )?
+                config.region_x,
+                config.region_y,
+                config.region_width,
+                config.region_height,
+            )?;
+
+            drop(config); // Libera o lock
+            result
         }
         hotkey::HotkeyAction::TranslateFullScreen => {
             info!("   🖥️  Capturando tela inteira");
@@ -345,12 +432,22 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     info!("✅ Texto extraído:");
     info!("   📝 {}", extracted_text);
 
+    // Remove quebras de linha extras para melhorar tradução
+    let extracted_text = extracted_text
+        .lines()
+        .map(|line| line.trim())
+        .collect::<Vec<&str>>()
+        .join(" ");
+
+    info!("✅ Texto limpo:");
+    info!("   📝 {}", extracted_text);
+
     info!("🌐 [3/5] Traduzindo texto...");
 
     // Tradução precisa ser assíncrona - vamos usar tokio runtime
     let runtime = tokio::runtime::Runtime::new()?;
     let translated_text = runtime.block_on(async {
-        translator::translate(&extracted_text, &state.config.deepl_api_key).await
+        translator::translate(&extracted_text, &state.config.lock().unwrap().deepl_api_key).await
     })?;
 
     info!("✅ Texto traduzido:");
@@ -391,8 +488,11 @@ fn main() -> Result<()> {
     // Carrega configurações
     let config = Config::load()?;
 
+    // Cria canal de comunicação
+    let (command_sender, command_receiver) = unbounded::<AppCommand>();
+
     // Cria estado compartilhado
-    let state = AppState::new(config);
+    let state = AppState::new(config, command_sender);
 
     // Inicia thread de hotkeys
     start_hotkey_thread(state.clone());
@@ -407,10 +507,10 @@ fn main() -> Result<()> {
     // ========================================================================
     // INICIA OVERLAY NA MAIN THREAD
     // ========================================================================
-    let overlay_x = state.config.app_config.overlay.x as f32;
-    let overlay_y = state.config.app_config.overlay.y as f32;
-    let overlay_width = state.config.app_config.overlay.width as f32;
-    let overlay_height = state.config.app_config.overlay.height as f32;
+    let overlay_x = state.config.lock().unwrap().app_config.overlay.x as f32;
+    let overlay_y = state.config.lock().unwrap().app_config.overlay.y as f32;
+    let overlay_width = state.config.lock().unwrap().app_config.overlay.width as f32;
+    let overlay_height = state.config.lock().unwrap().app_config.overlay.height as f32;
 
     info!("🖼️  Configurando overlay:");
     info!("   Posição: ({}, {})", overlay_x, overlay_y);
@@ -432,7 +532,15 @@ fn main() -> Result<()> {
     // CONFIGURAÇÃO E CARREGAMENTO DE FONTES
     // ========================================================================
     let state_for_fonts = state.clone();
-    let display_duration = state.config.app_config.display.overlay_duration_secs;
+    let display_duration = state
+        .config
+        .lock()
+        .unwrap()
+        .app_config
+        .display
+        .overlay_duration_secs;
+
+    let command_receiver_for_app = command_receiver;
 
     let _ = eframe::run_native(
         "Game Translator Overlay",
@@ -441,8 +549,9 @@ fn main() -> Result<()> {
             // ================================================================
             // Carrega fonte customizada se configurado
             // ================================================================
-            if state_for_fonts.config.app_config.display.use_custom_font {
-                let font_path = &state_for_fonts.config.app_config.display.font_file;
+            let config = state_for_fonts.config.lock().unwrap();
+            if config.app_config.display.use_custom_font {
+                let font_path = &config.app_config.display.font_file;
 
                 match std::fs::read(font_path) {
                     Ok(font_data) => {
@@ -471,12 +580,15 @@ fn main() -> Result<()> {
                 }
             }
 
+            drop(config); // Libera o lock antes de criar o app
+
             // ================================================================
             // Cria o app do overlay
             // ================================================================
             Ok(Box::new(OverlayApp {
                 state: state_for_fonts.clone(),
                 display_duration: Duration::from_secs(display_duration),
+                command_receiver: command_receiver_for_app,
             }) as Box<dyn eframe::App>)
         }),
     );
