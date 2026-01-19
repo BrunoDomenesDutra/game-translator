@@ -32,6 +32,23 @@ pub struct DetectedText {
     pub height: f64,
 }
 
+/// Representa um texto traduzido com sua posição na TELA (coordenadas absolutas)
+#[derive(Debug, Clone)]
+pub struct TranslatedText {
+    /// Texto original (inglês)
+    pub original: String,
+    /// Texto traduzido (português)
+    pub translated: String,
+    /// Posição X na tela (coordenadas absolutas do monitor)
+    pub screen_x: f64,
+    /// Posição Y na tela (coordenadas absolutas do monitor)
+    pub screen_y: f64,
+    /// Largura do bloco original
+    pub width: f64,
+    /// Altura do bloco original
+    pub height: f64,
+}
+
 /// Resultado completo do OCR com posições
 #[derive(Debug, Clone)]
 pub struct OcrResultWithPositions {

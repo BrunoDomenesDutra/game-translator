@@ -40,6 +40,8 @@ pub struct OverlayConfig {
     pub background_type: String,
     pub background_color: [u8; 4],
     pub background_image_path: String,
+    /// Se true, mostra fundo preto semi-transparente. Se false, só texto com contorno.
+    pub show_background: bool,
 }
 
 impl Default for OverlayConfig {
@@ -52,6 +54,7 @@ impl Default for OverlayConfig {
             background_type: "solid".to_string(),
             background_color: [0, 0, 0, 235],
             background_image_path: "backgrounds/custom.png".to_string(),
+            show_background: false, // Padrão: só texto com contorno
         }
     }
 }
