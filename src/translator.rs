@@ -7,6 +7,7 @@
 // Provedores suportados:
 // - DeepL (requer API key, melhor qualidade)
 // - Google Translate (grátis, sem API key)
+// - LibreTranslate (LOCAL, offline, sem API key) ← NOVO!
 //
 // ============================================================================
 
@@ -35,10 +36,31 @@ struct DeepLTranslation {
 }
 
 // ============================================================================
-// ESTRUTURAS DE DADOS - Google Translate
+// ESTRUTURAS DE DADOS - LibreTranslate ← NOVO!
 // ============================================================================
 
-// Google retorna um array aninhado complexo, vamos parsear manualmente
+/// Requisição para LibreTranslate
+#[derive(Debug, Serialize)]
+struct LibreTranslateRequest {
+    /// Texto a traduzir (pode ser único ou array)
+    q: String,
+    /// Idioma de origem (ex: "en", "pt", "auto")
+    source: String,
+    /// Idioma de destino (ex: "pt", "en")
+    target: String,
+    /// Formato do texto (text ou html)
+    format: String,
+    /// API key (opcional, só se o servidor exigir)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api_key: Option<String>,
+}
+
+/// Resposta do LibreTranslate
+#[derive(Debug, Deserialize)]
+struct LibreTranslateResponse {
+    /// Texto traduzido
+    translatedText: String,
+}
 
 // ============================================================================
 // FUNÇÃO PRINCIPAL - TRADUÇÃO EM BATCH
@@ -48,7 +70,7 @@ struct DeepLTranslation {
 ///
 /// # Argumentos
 /// * `texts` - Lista de textos a traduzir
-/// * `provider` - Provedor: "deepl" ou "google"
+/// * `provider` - Provedor: "deepl", "google" ou "libretranslate"
 /// * `api_key` - API key (só necessário para DeepL)
 /// * `source_lang` - Idioma de origem (ex: "EN", "auto")
 /// * `target_lang` - Idioma de destino (ex: "PT-BR")
@@ -61,13 +83,22 @@ pub async fn translate_batch_with_provider(
     api_key: &str,
     source_lang: &str,
     target_lang: &str,
+    libretranslate_url: Option<&str>, // ← NOVO! (opcional)
 ) -> Result<Vec<String>> {
     match provider.to_lowercase().as_str() {
         "deepl" => translate_batch_deepl(texts, api_key, source_lang, target_lang).await,
         "google" => translate_batch_google(texts, source_lang, target_lang).await,
+        "libretranslate" => {
+            let url = libretranslate_url.unwrap_or("http://localhost:5000");
+            translate_batch_libretranslate(texts, source_lang, target_lang, url).await
+        }
         _ => {
-            warn!("⚠️  Provedor '{}' não reconhecido, usando Google", provider);
-            translate_batch_google(texts, source_lang, target_lang).await
+            warn!(
+                "⚠️  Provedor '{}' não reconhecido, usando LibreTranslate local",
+                provider
+            );
+            let url = libretranslate_url.unwrap_or("http://localhost:5000");
+            translate_batch_libretranslate(texts, source_lang, target_lang, url).await
         }
     }
 }
@@ -291,6 +322,115 @@ fn parse_google_response(response: &str) -> Result<String> {
     }
 
     Ok(translated)
+}
+
+// ============================================================================
+// LIBRETRANSLATE (LOCAL, OFFLINE) ← NOVO!
+// ============================================================================
+
+/// Traduz múltiplos textos usando LibreTranslate local
+///
+/// # Argumentos
+/// * `texts` - Lista de textos a traduzir
+/// * `source_lang` - Idioma de origem (ex: "en", "auto")
+/// * `target_lang` - Idioma de destino (ex: "pt")
+///
+/// # Retorna
+/// * `Result<Vec<String>>` - Lista de textos traduzidos
+async fn translate_batch_libretranslate(
+    texts: &[String],
+    source_lang: &str,
+    target_lang: &str,
+    base_url: &str,
+) -> Result<Vec<String>> {
+    info!("🌐 [LibreTranslate LOCAL] Iniciando tradução em batch...");
+    info!("   📝 {} textos para traduzir", texts.len());
+
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let client = reqwest::Client::new();
+    let mut translated_texts: Vec<String> = Vec::new();
+
+    // Converte códigos de idioma para formato do LibreTranslate
+    let source = convert_lang_code_to_libretranslate(source_lang);
+    let target = convert_lang_code_to_libretranslate(target_lang);
+
+    // URL do servidor local (pode ser configurável depois)
+    let base_url = "http://localhost:5000";
+
+    info!("   🌐 Conectando ao LibreTranslate em {}...", base_url);
+
+    // LibreTranslate não tem batch nativo, traduzimos um por um
+    // Mas é LOCAL, então é MUITO rápido mesmo assim!
+    for (i, text) in texts.iter().enumerate() {
+        info!("   📄 Traduzindo texto {}/{}...", i + 1, texts.len());
+
+        let request_body = LibreTranslateRequest {
+            q: text.clone(),
+            source: source.clone(),
+            target: target.clone(),
+            format: "text".to_string(),
+            api_key: None, // Servidor local geralmente não precisa
+        };
+
+        let response = client
+            .post(format!("{}/translate", base_url))
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .context("Falha ao enviar requisição para LibreTranslate")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            error!("❌ LibreTranslate erro: {} - {}", status, error_text);
+
+            // Se o servidor não estiver rodando, dá erro claro
+            if status.as_u16() == 0 || error_text.contains("Connection refused") {
+                anyhow::bail!(
+                    "LibreTranslate não está rodando! Inicie com: docker run -ti --rm -p 5000:5000 libretranslate/libretranslate"
+                );
+            }
+
+            anyhow::bail!("LibreTranslate erro {}: {}", status, error_text);
+        }
+
+        let libre_response: LibreTranslateResponse = response
+            .json()
+            .await
+            .context("Falha ao parsear resposta LibreTranslate")?;
+
+        translated_texts.push(libre_response.translatedText);
+    }
+
+    info!("✅ [LibreTranslate LOCAL] Tradução concluída!");
+    info!("   🇧🇷 {} textos traduzidos", translated_texts.len());
+    info!("   ⚡ 100% OFFLINE - Sem usar internet!");
+
+    Ok(translated_texts)
+}
+
+/// Converte códigos de idioma para formato do LibreTranslate
+fn convert_lang_code_to_libretranslate(lang: &str) -> String {
+    match lang.to_uppercase().as_str() {
+        "PT-BR" => "pt".to_string(),
+        "PT-PT" => "pt".to_string(),
+        "EN-US" => "en".to_string(),
+        "EN-GB" => "en".to_string(),
+        "EN" => "en".to_string(),
+        "ZH" => "zh".to_string(),
+        "JA" => "ja".to_string(),
+        "ES" => "es".to_string(),
+        "FR" => "fr".to_string(),
+        "DE" => "de".to_string(),
+        "IT" => "it".to_string(),
+        "RU" => "ru".to_string(),
+        "AUTO" => "auto".to_string(),
+        code => code.to_lowercase(),
+    }
 }
 
 /// Converte códigos de idioma do DeepL para Google

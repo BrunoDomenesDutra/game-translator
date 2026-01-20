@@ -47,6 +47,7 @@
   "translation": {
     "provider": "google",
     "source_language": "EN",
-    "target_language": "PT-BR"
+    "target_language": "PT-BR",
+    "libretranslate_url": "http://localhost:5000"
   }
 }

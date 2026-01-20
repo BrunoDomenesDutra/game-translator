@@ -157,20 +157,29 @@ pub struct DisplayConfig {
 /// Estrutura de configuração de tradução
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranslationConfig {
-    /// Provedor de tradução: "deepl" ou "google"
+    /// Provedor de tradução: "deepl", "google" ou "libretranslate"
     pub provider: String,
     /// Idioma de origem (ex: "EN", "JA", "auto")
     pub source_language: String,
     /// Idioma de destino (ex: "PT-BR", "PT", "ES")
     pub target_language: String,
+    /// URL do LibreTranslate (se usar LibreTranslate local) ← NOVO!
+    #[serde(default = "default_libretranslate_url")]
+    pub libretranslate_url: String,
+}
+
+/// URL padrão do LibreTranslate
+fn default_libretranslate_url() -> String {
+    "http://localhost:5000".to_string()
 }
 
 impl Default for TranslationConfig {
     fn default() -> Self {
         TranslationConfig {
-            provider: "deepl".to_string(),
+            provider: "libretranslate".to_string(), // Padrão: LibreTranslate local
             source_language: "EN".to_string(),
             target_language: "PT-BR".to_string(),
+            libretranslate_url: "http://localhost:5000".to_string(), // ← NOVO!
         }
     }
 }

@@ -558,13 +558,15 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     // Tradução em batch
     info!("🌐 [3/4] Traduzindo {} textos...", texts_to_translate.len());
 
-    let (api_key, provider, source_lang, target_lang) = {
+    let (api_key, provider, source_lang, target_lang, libre_url) = {
+        // ← ADICIONOU libre_url
         let config = state.config.lock().unwrap();
         (
             config.deepl_api_key.clone(),
             config.app_config.translation.provider.clone(),
             config.app_config.translation.source_language.clone(),
             config.app_config.translation.target_language.clone(),
+            config.app_config.translation.libretranslate_url.clone(),
         )
     };
 
@@ -602,6 +604,7 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
                 &api_key,
                 &source_lang,
                 &target_lang,
+                Some(&libre_url), // ← ADICIONE ESSA LINHA
             )
             .await
         })?;
