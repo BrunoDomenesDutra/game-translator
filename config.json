@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 1196,
-    "y": 716,
-    "width": 1130,
-    "height": 525
+    "x": 1179,
+    "y": 694,
+    "width": 1137,
+    "height": 606
   },
   "overlay": {
     "x": 265,
@@ -40,6 +40,13 @@
     "select_region": "NumpadMultiply"
   },
   "display": {
-    "overlay_duration_secs": 10
+    "overlay_duration_secs": 10,
+    "use_memory_capture": true,
+    "tts_enabled": false
+  },
+  "translation": {
+    "provider": "google",
+    "source_language": "EN",
+    "target_language": "PT-BR"
   }
 }

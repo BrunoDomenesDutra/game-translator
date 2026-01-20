@@ -81,3 +81,10 @@ minifb = "0.25"
 # === FILE SYSTEM WATCHER ===
 # Monitora mudanças em arquivos (ex: .env)
 notify = "6.1"
+
+# === ÁUDIO / TTS ===
+# Biblioteca para tocar áudio (MP3, WAV, etc)
+rodio = "0.17"
+
+# === URL ENCODING ===
+urlencoding = "2.1"

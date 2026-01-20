@@ -125,6 +125,78 @@ pub fn capture_region(
 }
 
 // ============================================================================
+// CAPTURA EM MEMÓRIA (SEM SALVAR EM DISCO) - MAIS RÁPIDO!
+// ============================================================================
+
+/// Captura a tela inteira e retorna a imagem em memória (não salva em disco)
+///
+/// # Retorna
+/// * `Result<DynamicImage>` - Imagem capturada em memória
+pub fn capture_screen_to_memory() -> Result<DynamicImage> {
+    info!("📸 Capturando tela inteira (memória)...");
+
+    let screens = Screen::all().context("Falha ao listar monitores")?;
+    let screen = screens.get(0).context("Nenhum monitor encontrado")?;
+
+    info!(
+        "   Monitor: {}x{}",
+        screen.display_info.width, screen.display_info.height
+    );
+
+    let buffer = screen.capture().context("Falha ao capturar tela")?;
+    let img = buffer_to_image(&buffer);
+
+    info!("✅ Screenshot capturada em memória!");
+
+    Ok(img)
+}
+
+/// Captura uma região específica e retorna a imagem em memória (não salva em disco)
+///
+/// # Argumentos
+/// * `x` - Posição X do canto superior esquerdo
+/// * `y` - Posição Y do canto superior esquerdo
+/// * `width` - Largura da região
+/// * `height` - Altura da região
+///
+/// # Retorna
+/// * `Result<DynamicImage>` - Imagem capturada em memória
+pub fn capture_region_to_memory(x: u32, y: u32, width: u32, height: u32) -> Result<DynamicImage> {
+    info!("📸 Capturando região (memória)...");
+    info!("   Posição: ({}, {})", x, y);
+    info!("   Tamanho: {}x{}", width, height);
+
+    let screens = Screen::all().context("Falha ao listar monitores")?;
+    let screen = screens.get(0).context("Nenhum monitor encontrado")?;
+
+    let buffer = screen.capture().context("Falha ao capturar tela")?;
+    let full_img = buffer_to_image(&buffer);
+
+    // Valida se a região está dentro da tela
+    let screen_width = full_img.width();
+    let screen_height = full_img.height();
+
+    if x + width > screen_width || y + height > screen_height {
+        anyhow::bail!(
+            "Região ({},{} {}x{}) está fora dos limites da tela ({}x{})",
+            x,
+            y,
+            width,
+            height,
+            screen_width,
+            screen_height
+        );
+    }
+
+    // Recorta a região
+    let cropped = full_img.crop_imm(x, y, width, height);
+
+    info!("✅ Screenshot da região capturada em memória!");
+
+    Ok(cropped)
+}
+
+// ============================================================================
 // FUNÇÃO AUXILIAR - Converte buffer para imagem
 // ============================================================================
 

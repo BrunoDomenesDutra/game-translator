@@ -1,211 +1,118 @@
 // game-translator/src/translator.rs
 
 // ============================================================================
-// MÓDULO TRANSLATOR - Tradução usando DeepL API
+// MÓDULO TRANSLATOR - Tradução usando múltiplos provedores
+// ============================================================================
+//
+// Provedores suportados:
+// - DeepL (requer API key, melhor qualidade)
+// - Google Translate (grátis, sem API key)
+//
 // ============================================================================
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
-// ESTRUTURAS DE DADOS
+// ESTRUTURAS DE DADOS - DeepL
 // ============================================================================
 
-/// Estrutura que enviamos para a API do DeepL
-/// Serializa para JSON automaticamente (graças ao #[derive(Serialize)])
 #[derive(Debug, Serialize)]
 struct DeepLRequest {
-    /// Lista de textos a traduzir (DeepL aceita múltiplos textos de uma vez)
     text: Vec<String>,
-
-    /// Idioma de destino (PT-BR = Português Brasileiro)
     target_lang: String,
-
-    /// Idioma de origem (EN = Inglês)
     source_lang: String,
 }
 
-/// Estrutura que recebemos da API do DeepL
-/// Deserializa do JSON automaticamente (graças ao #[derive(Deserialize)])
 #[derive(Debug, Deserialize)]
 struct DeepLResponse {
-    /// Lista de traduções (uma para cada texto enviado)
-    translations: Vec<Translation>,
+    translations: Vec<DeepLTranslation>,
 }
 
-/// Cada tradução individual
 #[derive(Debug, Deserialize)]
-struct Translation {
-    /// Idioma detectado automaticamente pela API
-    detected_source_language: String,
-
-    /// Texto traduzido
+struct DeepLTranslation {
     text: String,
 }
 
 // ============================================================================
-// FUNÇÃO DE TRADUÇÃO
+// ESTRUTURAS DE DADOS - Google Translate
 // ============================================================================
 
-/// Traduz texto de inglês para português brasileiro usando DeepL
+// Google retorna um array aninhado complexo, vamos parsear manualmente
+
+// ============================================================================
+// FUNÇÃO PRINCIPAL - TRADUÇÃO EM BATCH
+// ============================================================================
+
+/// Traduz múltiplos textos usando o provedor configurado
 ///
 /// # Argumentos
-/// * `text` - Texto em inglês a ser traduzido
-/// * `api_key` - Chave da API do DeepL
+/// * `texts` - Lista de textos a traduzir
+/// * `provider` - Provedor: "deepl" ou "google"
+/// * `api_key` - API key (só necessário para DeepL)
+/// * `source_lang` - Idioma de origem (ex: "EN", "auto")
+/// * `target_lang` - Idioma de destino (ex: "PT-BR")
 ///
 /// # Retorna
-/// * `Result<String>` - Texto traduzido ou erro
-///
-/// # Exemplo
-/// ```
-/// let traducao = translate("Hello world", "minha-api-key").await?;
-/// println!("{}", traducao); // Imprime: "Olá mundo"
-/// ```
-pub async fn translate(text: &str, api_key: &str) -> Result<String> {
-    info!("🌐 Iniciando tradução...");
-    info!("   📝 Texto original: {} caracteres", text.len());
-
-    // ========================================================================
-    // VERIFICAÇÃO: Se não há API key configurada, retorna tradução fake
-    // ========================================================================
-    if api_key == "fake-api-key" || api_key.is_empty() {
-        info!("⚠️  API key do DeepL não configurada");
-        info!("   💡 Configure DEEPL_API_KEY no arquivo .env");
-        return Ok(format!("[TRADUÇÃO FAKE] {}", text));
+/// * `Result<Vec<String>>` - Lista de textos traduzidos
+pub async fn translate_batch_with_provider(
+    texts: &[String],
+    provider: &str,
+    api_key: &str,
+    source_lang: &str,
+    target_lang: &str,
+) -> Result<Vec<String>> {
+    match provider.to_lowercase().as_str() {
+        "deepl" => translate_batch_deepl(texts, api_key, source_lang, target_lang).await,
+        "google" => translate_batch_google(texts, source_lang, target_lang).await,
+        _ => {
+            warn!("⚠️  Provedor '{}' não reconhecido, usando Google", provider);
+            translate_batch_google(texts, source_lang, target_lang).await
+        }
     }
+}
 
-    // ========================================================================
-    // PASSO 1: Criar cliente HTTP
-    // ========================================================================
-    // O reqwest::Client é como o axios do Node.js
-    let client = reqwest::Client::new();
-
-    // ========================================================================
-    // PASSO 2: Montar o corpo da requisição (payload JSON)
-    // ========================================================================
-    let request_body = DeepLRequest {
-        text: vec![text.to_string()],     // Converte para Vec (lista) de Strings
-        target_lang: "PT-BR".to_string(), // Português do Brasil
-        source_lang: "EN".to_string(),    // Inglês
-    };
-
-    info!("   🌐 Enviando requisição para DeepL API...");
-
-    // ========================================================================
-    // PASSO 3: Fazer requisição POST para a API
-    // ========================================================================
-    let response = client
-        .post("https://api-free.deepl.com/v2/translate") // URL da API (versão FREE)
-        .header("Authorization", format!("DeepL-Auth-Key {}", api_key)) // Header de autenticação
-        .header("Content-Type", "application/json") // Tipo do conteúdo
-        .json(&request_body) // Serializa o request_body para JSON automaticamente
-        .send() // Envia a requisição
-        .await // Aguarda a resposta (assíncrono)
-        .context("Falha ao enviar requisição para DeepL")?; // Se der erro, retorna mensagem
-
-    // ========================================================================
-    // PASSO 4: Verificar se a API retornou sucesso (status 200-299)
-    // ========================================================================
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-
-        error!("❌ DeepL API retornou erro!");
-        error!("   Status: {}", status);
-        error!("   Mensagem: {}", error_text);
-
-        anyhow::bail!("DeepL API retornou erro {}: {}", status, error_text);
-    }
-
-    // ========================================================================
-    // PASSO 5: Parsear (deserializar) a resposta JSON
-    // ========================================================================
-    let deepl_response: DeepLResponse = response
-        .json() // Converte o JSON para a struct DeepLResponse automaticamente
-        .await
-        .context("Falha ao parsear resposta da DeepL")?;
-
-    // ========================================================================
-    // PASSO 6: Extrair o texto traduzido
-    // ========================================================================
-    let translated_text = deepl_response
-        .translations // Pega a lista de traduções
-        .first() // Pega a primeira (só enviamos um texto)
-        .context("Nenhuma tradução retornada pela API")? // Retorna erro se não houver
-        .text // Pega o campo "text"
-        .clone(); // Clona o texto (cria uma cópia)
-
-    info!("✅ Tradução concluída!");
-    info!(
-        "   🇧🇷 Texto traduzido: {} caracteres",
-        translated_text.len()
-    );
-
-    Ok(translated_text)
+/// Função de compatibilidade (usa DeepL por padrão)
+pub async fn translate_batch(texts: &[String], api_key: &str) -> Result<Vec<String>> {
+    translate_batch_deepl(texts, api_key, "EN", "PT-BR").await
 }
 
 // ============================================================================
-// TRADUÇÃO EM BATCH (MÚLTIPLOS TEXTOS DE UMA VEZ)
+// DeepL TRADUTOR
 // ============================================================================
 
-/// Traduz múltiplos textos de uma vez (muito mais rápido!)
-///
-/// # Argumentos
-/// * `texts` - Lista de textos em inglês a serem traduzidos
-/// * `api_key` - Chave da API do DeepL
-///
-/// # Retorna
-/// * `Result<Vec<String>>` - Lista de textos traduzidos (na mesma ordem)
-///
-/// # Exemplo
-/// ```
-/// let textos = vec!["Hello", "World", "Game"];
-/// let traducoes = translate_batch(&textos, "api-key").await?;
-/// // traducoes = ["Olá", "Mundo", "Jogo"]
-/// ```
-pub async fn translate_batch(texts: &[String], api_key: &str) -> Result<Vec<String>> {
-    info!("🌐 Iniciando tradução em batch...");
+async fn translate_batch_deepl(
+    texts: &[String],
+    api_key: &str,
+    source_lang: &str,
+    target_lang: &str,
+) -> Result<Vec<String>> {
+    info!("🌐 [DeepL] Iniciando tradução em batch...");
     info!("   📝 {} textos para traduzir", texts.len());
 
-    // Se não há textos, retorna lista vazia
     if texts.is_empty() {
         return Ok(Vec::new());
     }
 
-    // ========================================================================
-    // VERIFICAÇÃO: Se não há API key configurada, retorna tradução fake
-    // ========================================================================
-    if api_key == "fake-api-key" || api_key.is_empty() {
-        info!("⚠️  API key do DeepL não configurada");
-        info!("   💡 Configure DEEPL_API_KEY no arquivo .env");
-
-        // Retorna traduções fake (só adiciona prefixo)
-        let fake_translations: Vec<String> =
-            texts.iter().map(|t| format!("[FAKE] {}", t)).collect();
-
-        return Ok(fake_translations);
+    // Verifica API key
+    if api_key.is_empty() || api_key == "fake-api-key" {
+        warn!("⚠️  DeepL API key não configurada!");
+        return Ok(texts
+            .iter()
+            .map(|t| format!("[SEM API KEY] {}", t))
+            .collect());
     }
 
-    // ========================================================================
-    // PASSO 1: Criar cliente HTTP
-    // ========================================================================
     let client = reqwest::Client::new();
 
-    // ========================================================================
-    // PASSO 2: Montar o corpo da requisição
-    // ========================================================================
-    // DeepL aceita múltiplos textos no campo "text" (array)
     let request_body = DeepLRequest {
-        text: texts.to_vec(), // Todos os textos de uma vez!
-        target_lang: "PT-BR".to_string(),
-        source_lang: "EN".to_string(),
+        text: texts.to_vec(),
+        target_lang: target_lang.to_string(),
+        source_lang: source_lang.to_string(),
     };
 
     info!("   🌐 Enviando {} textos para DeepL API...", texts.len());
 
-    // ========================================================================
-    // PASSO 3: Fazer requisição POST
-    // ========================================================================
     let response = client
         .post("https://api-free.deepl.com/v2/translate")
         .header("Authorization", format!("DeepL-Auth-Key {}", api_key))
@@ -215,36 +122,186 @@ pub async fn translate_batch(texts: &[String], api_key: &str) -> Result<Vec<Stri
         .await
         .context("Falha ao enviar requisição para DeepL")?;
 
-    // ========================================================================
-    // PASSO 4: Verificar se a API retornou sucesso
-    // ========================================================================
     if !response.status().is_success() {
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        error!("❌ DeepL API retornou erro: {} - {}", status, error_text);
+        error!("❌ DeepL API erro: {} - {}", status, error_text);
         anyhow::bail!("DeepL API erro {}: {}", status, error_text);
     }
 
-    // ========================================================================
-    // PASSO 5: Parsear a resposta
-    // ========================================================================
     let deepl_response: DeepLResponse = response
         .json()
         .await
-        .context("Falha ao parsear resposta da DeepL")?;
+        .context("Falha ao parsear resposta DeepL")?;
 
-    // ========================================================================
-    // PASSO 6: Extrair todos os textos traduzidos
-    // ========================================================================
-    // A API retorna as traduções na mesma ordem que enviamos
-    let translated_texts: Vec<String> = deepl_response
+    let translated: Vec<String> = deepl_response
         .translations
         .iter()
         .map(|t| t.text.clone())
         .collect();
 
-    info!("✅ Tradução em batch concluída!");
+    info!("✅ [DeepL] Tradução concluída!");
+    info!("   🇧🇷 {} textos traduzidos", translated.len());
+
+    Ok(translated)
+}
+
+// ============================================================================
+// GOOGLE TRANSLATE (GRÁTIS, SEM API KEY)
+// ============================================================================
+
+async fn translate_batch_google(
+    texts: &[String],
+    source_lang: &str,
+    target_lang: &str,
+) -> Result<Vec<String>> {
+    info!("🌐 [Google] Iniciando tradução em batch...");
+    info!("   📝 {} textos para traduzir", texts.len());
+
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let client = reqwest::Client::new();
+    let mut translated_texts: Vec<String> = Vec::new();
+
+    // Converte códigos de idioma para formato do Google
+    let source = convert_lang_code_to_google(source_lang);
+    let target = convert_lang_code_to_google(target_lang);
+
+    // Google Translate não aceita batch oficial, então traduzimos um por um
+    // Mas podemos juntar textos com separador para otimizar
+    let combined_text = texts.join("\n||||\n");
+
+    info!("   🌐 Enviando para Google Translate...");
+
+    let url = format!(
+        "https://translate.googleapis.com/translate_a/single?client=gtx&sl={}&tl={}&dt=t&q={}",
+        source,
+        target,
+        urlencoding::encode(&combined_text)
+    );
+
+    let response = client
+        .get(&url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .send()
+        .await
+        .context("Falha ao enviar requisição para Google Translate")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        error!("❌ Google Translate erro: {}", status);
+        anyhow::bail!("Google Translate erro: {}", status);
+    }
+
+    let response_text = response.text().await?;
+
+    // Parseia a resposta do Google (formato JSON aninhado complexo)
+    let translated_combined = parse_google_response(&response_text)?;
+
+    // Separa os textos de volta
+    let parts: Vec<&str> = translated_combined.split("||||").collect();
+
+    for (i, part) in parts.iter().enumerate() {
+        let cleaned = part.trim();
+        if i < texts.len() {
+            translated_texts.push(cleaned.to_string());
+        }
+    }
+
+    // Se não conseguiu separar corretamente, retorna o texto combinado
+    if translated_texts.len() != texts.len() {
+        warn!("⚠️  Número de traduções diferente do esperado, ajustando...");
+        translated_texts.clear();
+
+        // Traduz um por um como fallback
+        for text in texts {
+            let single_translated =
+                translate_single_google(&client, text, &source, &target).await?;
+            translated_texts.push(single_translated);
+        }
+    }
+
+    info!("✅ [Google] Tradução concluída!");
     info!("   🇧🇷 {} textos traduzidos", translated_texts.len());
 
     Ok(translated_texts)
+}
+
+/// Traduz um único texto via Google Translate
+async fn translate_single_google(
+    client: &reqwest::Client,
+    text: &str,
+    source: &str,
+    target: &str,
+) -> Result<String> {
+    let url = format!(
+        "https://translate.googleapis.com/translate_a/single?client=gtx&sl={}&tl={}&dt=t&q={}",
+        source,
+        target,
+        urlencoding::encode(text)
+    );
+
+    let response = client
+        .get(&url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .send()
+        .await
+        .context("Falha na requisição Google Translate")?;
+
+    let response_text = response.text().await?;
+    parse_google_response(&response_text)
+}
+
+/// Parseia a resposta JSON do Google Translate
+/// O formato é um array aninhado: [[["texto traduzido","texto original",...],...],...]
+fn parse_google_response(response: &str) -> Result<String> {
+    // Tenta parsear como JSON
+    let json: serde_json::Value =
+        serde_json::from_str(response).context("Falha ao parsear resposta do Google")?;
+
+    let mut translated = String::new();
+
+    // O formato é: [[["tradução", "original", ...], ...], ...]
+    if let Some(outer_array) = json.as_array() {
+        if let Some(first) = outer_array.first() {
+            if let Some(sentences) = first.as_array() {
+                for sentence in sentences {
+                    if let Some(arr) = sentence.as_array() {
+                        if let Some(text) = arr.first() {
+                            if let Some(s) = text.as_str() {
+                                translated.push_str(s);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if translated.is_empty() {
+        anyhow::bail!("Não foi possível extrair tradução da resposta");
+    }
+
+    Ok(translated)
+}
+
+/// Converte códigos de idioma do DeepL para Google
+fn convert_lang_code_to_google(lang: &str) -> String {
+    match lang.to_uppercase().as_str() {
+        "PT-BR" => "pt".to_string(),
+        "PT-PT" => "pt".to_string(),
+        "EN-US" => "en".to_string(),
+        "EN-GB" => "en".to_string(),
+        "ZH" => "zh-CN".to_string(),
+        "JA" => "ja".to_string(),
+        code => code.to_lowercase(),
+    }
 }

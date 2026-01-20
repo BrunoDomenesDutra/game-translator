@@ -146,12 +146,41 @@ impl Default for FontConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayConfig {
     pub overlay_duration_secs: u64,
+    /// Se true, processa OCR direto da memória (mais rápido)
+    /// Se false, salva screenshot em disco primeiro (mais lento, mas útil para debug)
+    pub use_memory_capture: bool,
+    /// Se true, ativa Text-to-Speech (ElevenLabs)
+    /// Se false, apenas exibe tradução sem áudio
+    pub tts_enabled: bool,
+}
+
+/// Estrutura de configuração de tradução
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranslationConfig {
+    /// Provedor de tradução: "deepl" ou "google"
+    pub provider: String,
+    /// Idioma de origem (ex: "EN", "JA", "auto")
+    pub source_language: String,
+    /// Idioma de destino (ex: "PT-BR", "PT", "ES")
+    pub target_language: String,
+}
+
+impl Default for TranslationConfig {
+    fn default() -> Self {
+        TranslationConfig {
+            provider: "deepl".to_string(),
+            source_language: "EN".to_string(),
+            target_language: "PT-BR".to_string(),
+        }
+    }
 }
 
 impl Default for DisplayConfig {
     fn default() -> Self {
         DisplayConfig {
             overlay_duration_secs: 5,
+            use_memory_capture: true,
+            tts_enabled: true, // TTS ligado por padrão
         }
     }
 }
@@ -161,9 +190,10 @@ impl Default for DisplayConfig {
 pub struct AppConfig {
     pub region: RegionConfig,
     pub overlay: OverlayConfig,
-    pub font: FontConfig, // <-- ADICIONA ESTA LINHA
+    pub font: FontConfig,
     pub hotkeys: HotkeyConfig,
     pub display: DisplayConfig,
+    pub translation: TranslationConfig,
 }
 
 impl Default for AppConfig {
@@ -171,9 +201,10 @@ impl Default for AppConfig {
         AppConfig {
             region: RegionConfig::default(),
             overlay: OverlayConfig::default(),
-            font: FontConfig::default(), // <-- ADICIONA ESTA LINHA
+            font: FontConfig::default(),
             hotkeys: HotkeyConfig::default(),
             display: DisplayConfig::default(),
+            translation: TranslationConfig::default(),
         }
     }
 }

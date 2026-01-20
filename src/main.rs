@@ -10,6 +10,7 @@ extern crate log;
 // ============================================================================
 // DECLARAÇÃO DE MÓDULOS
 // ============================================================================
+mod cache;
 mod config;
 mod hotkey;
 mod ocr;
@@ -62,24 +63,26 @@ struct CaptureRegion {
 #[derive(Clone)]
 struct AppState {
     config: Arc<Mutex<Config>>,
-    /// Lista de textos traduzidos com posições
     translated_items: Arc<Mutex<Vec<TranslatedText>>>,
-    /// Região onde foi feita a captura
     capture_region: Arc<Mutex<Option<CaptureRegion>>>,
-    /// Timestamp de quando a tradução foi feita
     translation_timestamp: Arc<Mutex<Option<std::time::Instant>>>,
-    /// Canal de comandos
     command_sender: Sender<AppCommand>,
+    /// Cache de traduções
+    translation_cache: cache::TranslationCache,
 }
 
 impl AppState {
     fn new(config: Config, command_sender: Sender<AppCommand>) -> Self {
+        // Cria cache com persistência em disco
+        let translation_cache = cache::TranslationCache::new(true);
+
         AppState {
             config: Arc::new(Mutex::new(config)),
             translated_items: Arc::new(Mutex::new(Vec::new())),
             capture_region: Arc::new(Mutex::new(None)),
             translation_timestamp: Arc::new(Mutex::new(None)),
             command_sender,
+            translation_cache,
         }
     }
 
@@ -462,39 +465,81 @@ fn start_config_watcher(state: AppState) {
 // ============================================================================
 
 fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) -> Result<()> {
+    // Verifica se usa modo memória (mais rápido) ou arquivo (debug)
+    let use_memory = state
+        .config
+        .lock()
+        .unwrap()
+        .app_config
+        .display
+        .use_memory_capture;
+
     info!("📸 [1/4] Capturando tela...");
 
-    let screenshot_path = PathBuf::from("screenshot.png");
+    // OCR result vai ser preenchido de acordo com o modo
+    let ocr_result = if use_memory {
+        // ====================================================================
+        // MODO MEMÓRIA (RÁPIDO) - Não salva arquivo em disco
+        // ====================================================================
+        let image = match action {
+            hotkey::HotkeyAction::TranslateRegion => {
+                let (x, y, w, h) = {
+                    let config = state.config.lock().unwrap();
+                    (
+                        config.region_x,
+                        config.region_y,
+                        config.region_width,
+                        config.region_height,
+                    )
+                };
+                info!("   🎯 Região: {}x{} em ({}, {}) [MEMÓRIA]", w, h, x, y);
+                screenshot::capture_region_to_memory(x, y, w, h)?
+            }
+            hotkey::HotkeyAction::TranslateFullScreen => {
+                info!("   🖥️  Tela inteira [MEMÓRIA]");
+                screenshot::capture_screen_to_memory()?
+            }
+            hotkey::HotkeyAction::SelectRegion => {
+                anyhow::bail!("SelectRegion não deveria chamar process_translation")
+            }
+        };
 
-    // Captura a tela
-    match action {
-        hotkey::HotkeyAction::TranslateRegion => {
-            let (x, y, w, h) = {
-                let config = state.config.lock().unwrap();
-                (
-                    config.region_x,
-                    config.region_y,
-                    config.region_width,
-                    config.region_height,
-                )
-            };
-            info!("   🎯 Região: {}x{} em ({}, {})", w, h, x, y);
-            screenshot::capture_region(&screenshot_path, x, y, w, h)?;
-        }
-        hotkey::HotkeyAction::TranslateFullScreen => {
-            info!("   🖥️  Tela inteira");
-            screenshot::capture_screen(&screenshot_path)?;
-        }
-        hotkey::HotkeyAction::SelectRegion => {
-            anyhow::bail!("SelectRegion não deveria chamar process_translation")
-        }
+        info!("✅ Screenshot capturada em memória!");
+        info!("🔍 [2/4] Executando OCR...");
+        ocr::extract_text_from_memory(&image)?
+    } else {
+        // ====================================================================
+        // MODO ARQUIVO (DEBUG) - Salva screenshot.png em disco
+        // ====================================================================
+        let screenshot_path = PathBuf::from("screenshot.png");
+
+        match action {
+            hotkey::HotkeyAction::TranslateRegion => {
+                let (x, y, w, h) = {
+                    let config = state.config.lock().unwrap();
+                    (
+                        config.region_x,
+                        config.region_y,
+                        config.region_width,
+                        config.region_height,
+                    )
+                };
+                info!("   🎯 Região: {}x{} em ({}, {}) [ARQUIVO]", w, h, x, y);
+                screenshot::capture_region(&screenshot_path, x, y, w, h)?;
+            }
+            hotkey::HotkeyAction::TranslateFullScreen => {
+                info!("   🖥️  Tela inteira [ARQUIVO]");
+                screenshot::capture_screen(&screenshot_path)?;
+            }
+            hotkey::HotkeyAction::SelectRegion => {
+                anyhow::bail!("SelectRegion não deveria chamar process_translation")
+            }
+        };
+
+        info!("✅ Screenshot capturada!");
+        info!("🔍 [2/4] Executando OCR...");
+        ocr::extract_text_with_positions(&screenshot_path)?
     };
-
-    info!("✅ Screenshot capturada!");
-
-    // OCR com posições
-    info!("🔍 [2/4] Executando OCR...");
-    let ocr_result = ocr::extract_text_with_positions(&screenshot_path)?;
 
     if ocr_result.lines.is_empty() {
         info!("⚠️  Nenhum texto detectado!");
@@ -513,12 +558,78 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     // Tradução em batch
     info!("🌐 [3/4] Traduzindo {} textos...", texts_to_translate.len());
 
-    let api_key = state.config.lock().unwrap().deepl_api_key.clone();
-    let runtime = tokio::runtime::Runtime::new()?;
-    let translated_texts = runtime
-        .block_on(async { translator::translate_batch(&texts_to_translate, &api_key).await })?;
+    let (api_key, provider, source_lang, target_lang) = {
+        let config = state.config.lock().unwrap();
+        (
+            config.deepl_api_key.clone(),
+            config.app_config.translation.provider.clone(),
+            config.app_config.translation.source_language.clone(),
+            config.app_config.translation.target_language.clone(),
+        )
+    };
 
-    info!("✅ Tradução concluída!");
+    // Verifica quais textos já estão no cache
+    let (cached, not_cached) = state.translation_cache.get_batch(
+        &provider,
+        &source_lang,
+        &target_lang,
+        &texts_to_translate,
+    );
+
+    info!(
+        "   📦 Cache: {} encontrados, {} novos",
+        cached.len(),
+        not_cached.len()
+    );
+
+    // Prepara vetor de resultados
+    let mut translated_texts: Vec<String> = vec![String::new(); texts_to_translate.len()];
+
+    // Preenche com os que estavam no cache
+    for (index, translated) in &cached {
+        translated_texts[*index] = translated.clone();
+    }
+
+    // Traduz apenas os que não estavam no cache
+    if !not_cached.is_empty() {
+        let texts_to_api: Vec<String> = not_cached.iter().map(|(_, t)| t.clone()).collect();
+
+        let runtime = tokio::runtime::Runtime::new()?;
+        let new_translations = runtime.block_on(async {
+            translator::translate_batch_with_provider(
+                &texts_to_api,
+                &provider,
+                &api_key,
+                &source_lang,
+                &target_lang,
+            )
+            .await
+        })?;
+
+        // Preenche os resultados e adiciona ao cache
+        let mut cache_pairs: Vec<(String, String)> = Vec::new();
+
+        for (i, (original_index, original_text)) in not_cached.iter().enumerate() {
+            if let Some(translated) = new_translations.get(i) {
+                translated_texts[*original_index] = translated.clone();
+                cache_pairs.push((original_text.clone(), translated.clone()));
+            }
+        }
+
+        // Salva no cache
+        state
+            .translation_cache
+            .set_batch(&provider, &source_lang, &target_lang, &cache_pairs);
+
+        // Salva cache em disco periodicamente
+        let _ = state.translation_cache.save_to_disk();
+    }
+
+    let (cache_total, cache_size) = state.translation_cache.stats();
+    info!(
+        "✅ Tradução concluída! (Cache: {} entradas, {} bytes)",
+        cache_total, cache_size
+    );
 
     // Monta lista com posições
     let (region_x, region_y) = {
@@ -567,6 +678,51 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     // Envia para o overlay
     info!("🖼️  [4/4] Exibindo traduções...");
     state.set_translations(translated_items, capture_region);
+
+    // ========================================================================
+    // TTS - Fala a tradução (se configurado)
+    // ========================================================================
+    let (elevenlabs_key, elevenlabs_voice, tts_enabled) = {
+        let config = state.config.lock().unwrap();
+        (
+            config.elevenlabs_api_key.clone(),
+            config.elevenlabs_voice_id.clone(),
+            // TTS só ativa se: está habilitado no config E tem API key E tem voice ID
+            config.app_config.display.tts_enabled
+                && !config.elevenlabs_api_key.is_empty()
+                && !config.elevenlabs_voice_id.is_empty(),
+        )
+    };
+
+    if tts_enabled {
+        info!("🔊 [5/5] Sintetizando voz...");
+
+        // Junta as traduções para falar (com espaço, não ponto)
+        // Isso mantém o texto contínuo como um parágrafo natural
+        let text_to_speak: String = translated_texts
+            .iter()
+            .filter(|t| !t.is_empty())
+            .cloned()
+            .collect::<Vec<String>>()
+            .join(" ");
+
+        if !text_to_speak.is_empty() {
+            // Executa TTS em thread separada para não bloquear
+            let key = elevenlabs_key.clone();
+            let voice = elevenlabs_voice.clone();
+
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    if let Err(e) = tts::speak(&text_to_speak, &key, &voice).await {
+                        error!("❌ Erro no TTS: {}", e);
+                    }
+                });
+            });
+        }
+    } else {
+        info!("🔇 [5/5] TTS desabilitado (configure ELEVENLABS_API_KEY e ELEVENLABS_VOICE_ID no .env)");
+    }
 
     info!("✅ Completo!");
     info!("");
