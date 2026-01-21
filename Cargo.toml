@@ -88,3 +88,8 @@ rodio = "0.17"
 
 # === URL ENCODING ===
 urlencoding = "2.1"
+
+# === WINDOWS API ===
+# Para manipular estilos de janela (click-through)
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }

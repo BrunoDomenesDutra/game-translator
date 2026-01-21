@@ -128,7 +128,20 @@ impl eframe::App for OverlayApp {
         [0.0, 0.0, 0.0, 0.0] // Totalmente transparente
     }
 
-    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+        // ====================================================================
+        // TORNA A JANELA CLICK-THROUGH (apenas uma vez)
+        // ====================================================================
+        #[cfg(windows)]
+        {
+            use std::sync::Once;
+            static INIT: Once = Once::new();
+            INIT.call_once(|| {
+                // Pequeno delay para garantir que a janela foi criada
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                make_window_click_through();
+            });
+        }
         // ====================================================================
         // PROCESSA COMANDOS RECEBIDOS
         // ====================================================================
@@ -803,4 +816,34 @@ fn main() -> Result<()> {
     );
 
     Ok(())
+}
+
+// ============================================================================
+// FUNÇÃO PARA TORNAR JANELA CLICK-THROUGH (WINDOWS)
+// ============================================================================
+
+#[cfg(windows)]
+fn make_window_click_through() {
+    use winapi::um::winuser::{
+        FindWindowW, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+    };
+
+    unsafe {
+        // Encontra a janela pelo título
+        let title: Vec<u16> = "Game Translator\0".encode_utf16().collect();
+        let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+
+        if !hwnd.is_null() {
+            // Pega o estilo atual
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+
+            // Adiciona WS_EX_LAYERED e WS_EX_TRANSPARENT para click-through
+            let new_style = ex_style | WS_EX_LAYERED as i32 | WS_EX_TRANSPARENT as i32;
+            SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
+
+            info!("✅ Janela configurada como click-through!");
+        } else {
+            warn!("⚠️  Não foi possível encontrar a janela para click-through");
+        }
+    }
 }

@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 1179,
-    "y": 694,
-    "width": 1137,
-    "height": 606
+    "x": 226,
+    "y": 393,
+    "width": 914,
+    "height": 545
   },
   "overlay": {
     "x": 265,
@@ -11,7 +11,12 @@
     "width": 1365,
     "height": 150,
     "background_type": "solid",
-    "background_color": [0, 0, 0, 235],
+    "background_color": [
+      0,
+      0,
+      0,
+      235
+    ],
     "background_image_path": "backgrounds/custom.png",
     "show_background": true
   },
@@ -20,18 +25,33 @@
     "system_font_name": "Arial",
     "file_path": "fonts/Font.ttf",
     "size": 30.0,
-    "color": [255, 255, 255, 255],
+    "color": [
+      255,
+      255,
+      255,
+      255
+    ],
     "shadow": {
       "enabled": false,
       "offset_x": 2,
       "offset_y": 2,
-      "color": [0, 0, 0, 180],
+      "color": [
+        0,
+        0,
+        0,
+        180
+      ],
       "blur": 0
     },
     "outline": {
       "enabled": false,
       "width": 2,
-      "color": [0, 0, 0, 255]
+      "color": [
+        0,
+        0,
+        0,
+        255
+      ]
     }
   },
   "hotkeys": {

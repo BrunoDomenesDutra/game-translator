@@ -1793,6 +1793,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "urlencoding",
+ "winapi",
  "windows 0.58.0",
  "winit",
 ]
