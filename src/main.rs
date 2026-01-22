@@ -294,14 +294,12 @@ impl eframe::App for OverlayApp {
             // Pega o histórico de legendas
             let history = self.state.subtitle_state.get_subtitle_history();
 
-            // Altura fixa da caixa = mesma altura da região de legenda
-            let overlay_height = sub_h;
-            let line_height = font_size + 8.0;
+            // Configuração: máximo de 3 linhas de legenda
+            let max_lines: usize = 3;
+            let line_height = font_size + 10.0;
+            let overlay_height = (max_lines as f32 * line_height) + 15.0;
 
-            // Calcula quantas linhas cabem na caixa
-            let max_lines = ((overlay_height - 10.0) / line_height).floor() as usize;
-
-            // Pega apenas as últimas N legendas que cabem
+            // Pega apenas as últimas N legendas
             let visible_history: Vec<_> = if history.len() > max_lines {
                 history[(history.len() - max_lines)..].to_vec()
             } else {
@@ -340,13 +338,21 @@ impl eframe::App for OverlayApp {
                         );
                     }
 
-                    // Renderiza cada legenda do histórico (de baixo para cima)
+                    // Renderiza cada legenda do histórico
                     let mut y_offset = 5.0;
                     let font_id = eframe::egui::FontId::proportional(font_size);
+                    let max_width = overlay_width - 20.0; // Margem de 10px em cada lado
 
                     for entry in &visible_history {
                         let text = format!("-- {}", entry.translated);
                         let text_pos = eframe::egui::pos2(10.0, y_offset);
+
+                        let text_color = eframe::egui::Color32::from_rgba_unmultiplied(
+                            font_color[0],
+                            font_color[1],
+                            font_color[2],
+                            font_color[3],
+                        );
 
                         // Se não tem fundo, desenha contorno
                         if !show_background {
@@ -361,29 +367,24 @@ impl eframe::App for OverlayApp {
 
                             for (dx, dy) in offsets {
                                 let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
-                                ui.painter().text(
-                                    offset_pos,
-                                    eframe::egui::Align2::LEFT_TOP,
-                                    &text,
+                                let galley = ui.painter().layout(
+                                    text.clone(),
                                     font_id.clone(),
                                     outline_color,
+                                    max_width,
                                 );
+                                ui.painter().galley(offset_pos, galley, outline_color);
                             }
                         }
 
-                        // Desenha o texto principal
-                        ui.painter().text(
-                            text_pos,
-                            eframe::egui::Align2::LEFT_TOP,
-                            &text,
+                        // Desenha o texto principal com wrap automático
+                        let galley = ui.painter().layout(
+                            text.clone(),
                             font_id.clone(),
-                            eframe::egui::Color32::from_rgba_unmultiplied(
-                                font_color[0],
-                                font_color[1],
-                                font_color[2],
-                                font_color[3],
-                            ),
+                            text_color,
+                            max_width,
                         );
+                        ui.painter().galley(text_pos, galley, text_color);
 
                         y_offset += line_height;
                     }
@@ -995,11 +996,21 @@ fn start_subtitle_thread(state: AppState) {
     thread::spawn(move || {
         info!("📺 Thread de legendas iniciada (aguardando ativação)");
 
+        // Timeout em segundos (sem texto = esconde legendas)
+        let timeout_secs: u64 = 5;
+
         loop {
             // Verifica se o modo legenda está ativo
             let is_active = *state.subtitle_mode_active.lock().unwrap();
 
             if is_active {
+                // Verifica timeout (sem texto por X segundos)
+                if state.subtitle_state.has_subtitles()
+                    && state.subtitle_state.is_timed_out(timeout_secs)
+                {
+                    state.subtitle_state.reset();
+                }
+
                 // Pega configurações da região de legenda
                 let (region_x, region_y, region_w, region_h, interval_ms) = {
                     let config = state.config.lock().unwrap();
@@ -1020,6 +1031,11 @@ fn start_subtitle_thread(state: AppState) {
                             Ok(ocr_result) => {
                                 // Junta todo o texto detectado
                                 let full_text = ocr_result.full_text.trim().to_string();
+
+                                // Se detectou texto, atualiza o tempo
+                                if full_text.len() >= 3 {
+                                    state.subtitle_state.update_detection_time();
+                                }
 
                                 // Processa o texto detectado
                                 if let Some(text_to_translate) =

@@ -58,6 +58,8 @@ pub struct SubtitleState {
     subtitle_history: Arc<Mutex<Vec<SubtitleEntry>>>,
     /// Número de vezes que o texto precisa ser visto para confirmar (debounce)
     required_stable_count: u32,
+    /// Momento da última detecção de texto (para timeout)
+    last_detection_time: Arc<Mutex<Instant>>,
 }
 
 impl SubtitleState {
@@ -71,9 +73,8 @@ impl SubtitleState {
             last_confirmed_text: Arc::new(Mutex::new(String::new())),
             current_candidate: Arc::new(Mutex::new(None)),
             subtitle_history: Arc::new(Mutex::new(Vec::new())),
-            // Requer 2 detecções consecutivas para confirmar
-            // Com intervalo de 500ms, isso significa ~1 segundo de estabilidade
             required_stable_count: 2,
+            last_detection_time: Arc::new(Mutex::new(Instant::now())),
         }
     }
 
@@ -163,6 +164,26 @@ impl SubtitleState {
                 return None;
             }
         }
+    }
+
+    /// Atualiza o tempo da última detecção de texto
+    pub fn update_detection_time(&self) {
+        *self.last_detection_time.lock().unwrap() = Instant::now();
+    }
+
+    /// Verifica se o timeout expirou (sem texto por X segundos)
+    pub fn is_timed_out(&self, timeout_secs: u64) -> bool {
+        let last_time = self.last_detection_time.lock().unwrap();
+        last_time.elapsed() > std::time::Duration::from_secs(timeout_secs)
+    }
+
+    /// Limpa o histórico e reseta o estado (quando timeout expira)
+    pub fn reset(&self) {
+        *self.last_confirmed_text.lock().unwrap() = String::new();
+        *self.current_candidate.lock().unwrap() = None;
+        self.subtitle_history.lock().unwrap().clear();
+        *self.last_detection_time.lock().unwrap() = Instant::now();
+        info!("📺 Legendas resetadas (timeout)");
     }
 
     /// Adiciona uma legenda traduzida ao histórico

@@ -10,3 +10,7 @@ screenshot.png
 
 # Logs
 *.log
+log.txt
+logs.txt
+
+translation_cache.txt
