@@ -203,6 +203,8 @@ pub struct SubtitleConfig {
     pub max_display_secs: u64,
     /// Configuração de fonte específica para legendas
     pub font: FontConfig,
+    /// Número máximo de legendas visíveis
+    pub max_lines: usize,
 }
 
 impl Default for SubtitleConfig {
@@ -221,11 +223,12 @@ impl Default for SubtitleConfig {
                 font_type: "system".to_string(),
                 system_font_name: "Arial".to_string(),
                 file_path: "fonts/Font.ttf".to_string(),
-                size: 24.0, // Menor que o padrão para legendas
+                size: 24.0,
                 color: [255, 255, 255, 255],
                 shadow: ShadowConfig::default(),
                 outline: OutlineConfig::default(),
             },
+            max_lines: 3,
         }
     }
 }

@@ -270,7 +270,7 @@ impl eframe::App for OverlayApp {
         // ====================================================================
         if subtitle_mode_active && has_subtitles {
             // Pega a região de legenda do config
-            let (sub_x, sub_y, sub_w, sub_h) = {
+            let (sub_x, sub_y, sub_w, _sub_h) = {
                 let config = self.state.config.lock().unwrap();
                 (
                     config.app_config.subtitle.region.x as f32,
@@ -281,23 +281,35 @@ impl eframe::App for OverlayApp {
             };
 
             // Pega configurações de fonte (específica de legendas) e fundo
-            let (font_size, font_color, show_background, bg_color) = {
+            let (
+                font_size,
+                font_color,
+                show_background,
+                bg_color,
+                outline_enabled,
+                outline_width,
+                outline_color,
+            ) = {
                 let config = self.state.config.lock().unwrap();
                 (
                     config.app_config.subtitle.font.size,
                     config.app_config.subtitle.font.color,
                     config.app_config.overlay.show_background,
                     config.app_config.overlay.background_color,
+                    config.app_config.subtitle.font.outline.enabled,
+                    config.app_config.subtitle.font.outline.width,
+                    config.app_config.subtitle.font.outline.color,
                 )
             };
 
             // Pega o histórico de legendas
             let history = self.state.subtitle_state.get_subtitle_history();
 
-            // Configuração: máximo de 3 linhas de legenda
-            let max_lines: usize = 3;
-            let line_height = font_size + 10.0;
-            let overlay_height = (max_lines as f32 * line_height) + 15.0;
+            // Pega número máximo de legendas do config
+            let max_lines = {
+                let config = self.state.config.lock().unwrap();
+                config.app_config.subtitle.max_lines
+            };
 
             // Pega apenas as últimas N legendas
             let visible_history: Vec<_> = if history.len() > max_lines {
@@ -305,6 +317,26 @@ impl eframe::App for OverlayApp {
             } else {
                 history.clone()
             };
+
+            // Calcula altura dinâmica baseada no conteúdo real
+            let font_id_calc = eframe::egui::FontId::proportional(font_size);
+            let max_width_calc = sub_w - 20.0;
+
+            let mut calculated_height = 15.0; // Margens
+            for entry in &visible_history {
+                let text = format!("-- {}", entry.translated);
+                let galley = ctx.fonts(|f| {
+                    f.layout(
+                        text,
+                        font_id_calc.clone(),
+                        eframe::egui::Color32::WHITE,
+                        max_width_calc,
+                    )
+                });
+                calculated_height += galley.rect.height() + 5.0;
+            }
+
+            let overlay_height = calculated_height.max(50.0); // Mínimo de 50px
 
             // Posiciona o overlay ACIMA da região de legenda
             let overlay_x = sub_x;
@@ -338,55 +370,72 @@ impl eframe::App for OverlayApp {
                         );
                     }
 
+                    // Configura renderização
+                    let font_id = eframe::egui::FontId::proportional(font_size);
+                    let max_width = overlay_width - 20.0;
+
+                    let text_color = eframe::egui::Color32::from_rgba_unmultiplied(
+                        font_color[0],
+                        font_color[1],
+                        font_color[2],
+                        font_color[3],
+                    );
+
                     // Renderiza cada legenda do histórico
                     let mut y_offset = 5.0;
-                    let font_id = eframe::egui::FontId::proportional(font_size);
-                    let max_width = overlay_width - 20.0; // Margem de 10px em cada lado
 
                     for entry in &visible_history {
                         let text = format!("-- {}", entry.translated);
                         let text_pos = eframe::egui::pos2(10.0, y_offset);
 
-                        let text_color = eframe::egui::Color32::from_rgba_unmultiplied(
-                            font_color[0],
-                            font_color[1],
-                            font_color[2],
-                            font_color[3],
-                        );
-
-                        // Se não tem fundo, desenha contorno
-                        if !show_background {
-                            let outline_size = 2.0;
-                            let outline_color = eframe::egui::Color32::BLACK;
-                            let offsets = [
-                                (-outline_size, 0.0),
-                                (outline_size, 0.0),
-                                (0.0, -outline_size),
-                                (0.0, outline_size),
-                            ];
-
-                            for (dx, dy) in offsets {
-                                let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
-                                let galley = ui.painter().layout(
-                                    text.clone(),
-                                    font_id.clone(),
-                                    outline_color,
-                                    max_width,
-                                );
-                                ui.painter().galley(offset_pos, galley, outline_color);
-                            }
-                        }
-
-                        // Desenha o texto principal com wrap automático
+                        // Calcula o galley para obter a altura real
                         let galley = ui.painter().layout(
                             text.clone(),
                             font_id.clone(),
                             text_color,
                             max_width,
                         );
+                        let text_height = galley.rect.height();
+
+                        // Desenha contorno se habilitado OU se não tem fundo
+                        if outline_enabled || !show_background {
+                            let size = outline_width as f32;
+                            let color = eframe::egui::Color32::from_rgba_unmultiplied(
+                                outline_color[0],
+                                outline_color[1],
+                                outline_color[2],
+                                outline_color[3],
+                            );
+
+                            // Offsets para criar contorno em todas as direções
+                            let offsets = [
+                                (-size, -size),
+                                (0.0, -size),
+                                (size, -size),
+                                (-size, 0.0),
+                                (size, 0.0),
+                                (-size, size),
+                                (0.0, size),
+                                (size, size),
+                            ];
+
+                            for (dx, dy) in offsets {
+                                let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
+                                let outline_galley = ui.painter().layout(
+                                    text.clone(),
+                                    font_id.clone(),
+                                    color,
+                                    max_width,
+                                );
+                                ui.painter().galley(offset_pos, outline_galley, color);
+                            }
+                        }
+
+                        // Desenha o texto principal
                         ui.painter().galley(text_pos, galley, text_color);
 
-                        y_offset += line_height;
+                        // Avança Y pela altura real do texto + espaçamento
+                        y_offset += text_height + 5.0;
                     }
                 });
         } else if should_display {
