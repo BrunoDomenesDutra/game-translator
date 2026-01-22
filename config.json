@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 707,
-    "y": 1003,
-    "width": 770,
-    "height": 121
+    "x": 309,
+    "y": 488,
+    "width": 413,
+    "height": 165
   },
   "overlay": {
     "x": 265,
@@ -59,7 +59,8 @@
     "translate_region": "NumpadAdd",
     "select_region": "NumpadMultiply",
     "select_subtitle_region": "NumpadDivide",
-    "toggle_subtitle_mode": "Numpad0"
+    "toggle_subtitle_mode": "Numpad0",
+    "hide_translation": "NumpadDecimal"
   },
   "display": {
     "overlay_duration_secs": 10,
@@ -74,10 +75,10 @@
   },
   "subtitle": {
     "region": {
-      "x": 546,
-      "y": 1195,
-      "width": 1480,
-      "height": 168
+      "x": 10,
+      "y": 1200,
+      "width": 2522,
+      "height": 196
     },
     "capture_interval_ms": 300,
     "min_display_secs": 2,

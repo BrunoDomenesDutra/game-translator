@@ -59,7 +59,7 @@ struct LibreTranslateRequest {
 #[derive(Debug, Deserialize)]
 struct LibreTranslateResponse {
     /// Texto traduzido
-    translatedText: String,
+    translated_text: String,
 }
 
 // ============================================================================
@@ -403,7 +403,7 @@ async fn translate_batch_libretranslate(
             .await
             .context("Falha ao parsear resposta LibreTranslate")?;
 
-        translated_texts.push(libre_response.translatedText);
+        translated_texts.push(libre_response.translated_text);
     }
 
     info!("✅ [LibreTranslate LOCAL] Tradução concluída!");

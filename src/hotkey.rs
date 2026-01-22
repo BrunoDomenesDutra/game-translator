@@ -15,7 +15,7 @@ pub struct HotkeyManager {
     last_action_time: Instant,      // Para evitar spam global
 }
 
-/// Tipo de captura solicitada pelo usuário
+/// Tipo de ação solicitada pelo usuário
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HotkeyAction {
     /// Captura a tela inteira
@@ -28,6 +28,8 @@ pub enum HotkeyAction {
     SelectSubtitleRegion,
     /// Liga/desliga o modo de legendas em tempo real
     ToggleSubtitleMode,
+    /// Esconde a tradução atual
+    HideTranslation,
 }
 
 impl HotkeyManager {
@@ -62,6 +64,7 @@ impl HotkeyManager {
             (Keycode::NumpadSubtract, HotkeyAction::TranslateFullScreen),
             (Keycode::NumpadDivide, HotkeyAction::SelectSubtitleRegion),
             (Keycode::Numpad0, HotkeyAction::ToggleSubtitleMode),
+            (Keycode::NumpadDecimal, HotkeyAction::HideTranslation),
         ];
 
         for &(key, action) in &key_actions {

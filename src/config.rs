@@ -67,6 +67,7 @@ pub struct HotkeyConfig {
     pub select_region: String,
     pub select_subtitle_region: String,
     pub toggle_subtitle_mode: String,
+    pub hide_translation: String,
 }
 
 impl Default for HotkeyConfig {
@@ -77,6 +78,7 @@ impl Default for HotkeyConfig {
             select_region: "NumpadMultiply".to_string(),
             select_subtitle_region: "NumpadDivide".to_string(),
             toggle_subtitle_mode: "Numpad0".to_string(),
+            hide_translation: "NumpadDecimal".to_string(),
         }
     }
 }

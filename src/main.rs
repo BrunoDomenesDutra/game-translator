@@ -511,9 +511,9 @@ impl eframe::App for OverlayApp {
                     });
 
                 // Verifica se o tempo acabou
-                if elapsed >= self.display_duration {
-                    self.state.clear_translations();
-                }
+                // if elapsed >= self.display_duration {
+                //     self.state.clear_translations();
+                // }
             }
         } else {
             // ================================================================
@@ -572,6 +572,15 @@ fn start_hotkey_thread(state: AppState) {
                         {
                             error!("❌ Erro ao enviar comando: {}", e);
                         }
+                    }
+
+                    hotkey::HotkeyAction::HideTranslation => {
+                        info!("");
+                        info!("🙈 ============================================");
+                        info!("🙈 ESCONDENDO TRADUÇÃO");
+                        info!("🙈 ============================================");
+
+                        state.clear_translations();
                     }
 
                     hotkey::HotkeyAction::ToggleSubtitleMode => {
@@ -744,7 +753,8 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             }
             hotkey::HotkeyAction::SelectRegion
             | hotkey::HotkeyAction::SelectSubtitleRegion
-            | hotkey::HotkeyAction::ToggleSubtitleMode => {
+            | hotkey::HotkeyAction::ToggleSubtitleMode
+            | hotkey::HotkeyAction::HideTranslation => {
                 anyhow::bail!("Esta ação não deveria chamar process_translation")
             }
         };
@@ -779,8 +789,10 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             hotkey::HotkeyAction::SelectRegion => {
                 anyhow::bail!("SelectRegion não deveria chamar process_translation")
             }
-            hotkey::HotkeyAction::SelectSubtitleRegion
-            | hotkey::HotkeyAction::ToggleSubtitleMode => {
+            hotkey::HotkeyAction::SelectRegion
+            | hotkey::HotkeyAction::SelectSubtitleRegion
+            | hotkey::HotkeyAction::ToggleSubtitleMode
+            | hotkey::HotkeyAction::HideTranslation => {
                 unreachable!("Esta ação não deveria chamar process_translation")
             }
         };
