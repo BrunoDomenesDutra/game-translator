@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 226,
-    "y": 393,
-    "width": 914,
-    "height": 545
+    "x": 921,
+    "y": 1195,
+    "width": 728,
+    "height": 175
   },
   "overlay": {
     "x": 265,
@@ -11,12 +11,7 @@
     "width": 1365,
     "height": 150,
     "background_type": "solid",
-    "background_color": [
-      0,
-      0,
-      0,
-      235
-    ],
+    "background_color": [0, 0, 0, 235],
     "background_image_path": "backgrounds/custom.png",
     "show_background": true
   },
@@ -25,39 +20,26 @@
     "system_font_name": "Arial",
     "file_path": "fonts/Font.ttf",
     "size": 30.0,
-    "color": [
-      255,
-      255,
-      255,
-      255
-    ],
+    "color": [255, 255, 255, 255],
     "shadow": {
       "enabled": false,
       "offset_x": 2,
       "offset_y": 2,
-      "color": [
-        0,
-        0,
-        0,
-        180
-      ],
+      "color": [0, 0, 0, 180],
       "blur": 0
     },
     "outline": {
       "enabled": false,
       "width": 2,
-      "color": [
-        0,
-        0,
-        0,
-        255
-      ]
+      "color": [0, 0, 0, 255]
     }
   },
   "hotkeys": {
     "translate_fullscreen": "NumpadSubtract",
     "translate_region": "NumpadAdd",
-    "select_region": "NumpadMultiply"
+    "select_region": "NumpadMultiply",
+    "select_subtitle_region": "NumpadDivide",
+    "toggle_subtitle_mode": "Numpad0"
   },
   "display": {
     "overlay_duration_secs": 10,
@@ -69,5 +51,35 @@
     "source_language": "EN",
     "target_language": "PT-BR",
     "libretranslate_url": "http://localhost:5000"
+  },
+  "subtitle": {
+    "region": {
+      "x": 617,
+      "y": 1169,
+      "width": 1335,
+      "height": 223
+    },
+    "capture_interval_ms": 300,
+    "min_display_secs": 2,
+    "max_display_secs": 10,
+    "font": {
+      "font_type": "system",
+      "system_font_name": "Arial",
+      "file_path": "fonts/Font.ttf",
+      "size": 24.0,
+      "color": [255, 255, 255, 255],
+      "shadow": {
+        "enabled": false,
+        "offset_x": 2,
+        "offset_y": 2,
+        "color": [0, 0, 0, 180],
+        "blur": 0
+      },
+      "outline": {
+        "enabled": true,
+        "width": 2,
+        "color": [0, 0, 0, 255]
+      }
+    }
   }
 }

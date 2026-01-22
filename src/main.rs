@@ -17,6 +17,7 @@ mod ocr;
 mod overlay;
 mod region_selector;
 mod screenshot;
+mod subtitle;
 mod translator;
 mod tts;
 
@@ -44,6 +45,8 @@ use std::time::Duration;
 enum AppCommand {
     /// Abre o seletor de região
     OpenRegionSelector,
+    /// Abre o seletor de região de legendas
+    OpenSubtitleRegionSelector,
 }
 
 // ============================================================================
@@ -69,12 +72,24 @@ struct AppState {
     command_sender: Sender<AppCommand>,
     /// Cache de traduções
     translation_cache: cache::TranslationCache,
+    /// Indica se o modo legenda está ativo
+    subtitle_mode_active: Arc<Mutex<bool>>,
+    /// Estado do sistema de legendas
+    subtitle_state: subtitle::SubtitleState,
+    /// Controla se o overlay deve ficar escondido (durante captura)
+    overlay_hidden: Arc<Mutex<bool>>,
 }
 
 impl AppState {
     fn new(config: Config, command_sender: Sender<AppCommand>) -> Self {
         // Cria cache com persistência em disco
         let translation_cache = cache::TranslationCache::new(true);
+
+        // Cria estado de legendas com configurações do config
+        let subtitle_state = subtitle::SubtitleState::new(
+            config.app_config.subtitle.min_display_secs,
+            config.app_config.subtitle.max_display_secs,
+        );
 
         AppState {
             config: Arc::new(Mutex::new(config)),
@@ -83,6 +98,9 @@ impl AppState {
             translation_timestamp: Arc::new(Mutex::new(None)),
             command_sender,
             translation_cache,
+            subtitle_mode_active: Arc::new(Mutex::new(false)),
+            subtitle_state,
+            overlay_hidden: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -143,6 +161,17 @@ impl eframe::App for OverlayApp {
             });
         }
         // ====================================================================
+        // VERIFICA SE O OVERLAY DEVE FICAR ESCONDIDO (durante captura)
+        // ====================================================================
+        let is_hidden = *self.state.overlay_hidden.lock().unwrap();
+        if is_hidden {
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                eframe::egui::vec2(1.0, 1.0),
+            ));
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            return;
+        }
+        // ====================================================================
         // PROCESSA COMANDOS RECEBIDOS
         // ====================================================================
         while let Ok(command) = self.command_receiver.try_recv() {
@@ -183,11 +212,52 @@ impl eframe::App for OverlayApp {
                         Err(e) => error!("❌ Erro no seletor: {}", e),
                     }
                 }
+
+                AppCommand::OpenSubtitleRegionSelector => {
+                    info!("📺 Abrindo seletor de região de legendas...");
+
+                    // Esconde o overlay temporariamente
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                        eframe::egui::vec2(1.0, 1.0),
+                    ));
+
+                    // Abre o seletor de região
+                    match region_selector::select_region() {
+                        Ok(Some(selected)) => {
+                            info!(
+                                "✅ Região de legendas selecionada: {}x{} na posição ({}, {})",
+                                selected.width, selected.height, selected.x, selected.y
+                            );
+
+                            let mut config = self.state.config.lock().unwrap();
+                            // Atualiza a região de legendas
+                            config.app_config.subtitle.region.x = selected.x;
+                            config.app_config.subtitle.region.y = selected.y;
+                            config.app_config.subtitle.region.width = selected.width;
+                            config.app_config.subtitle.region.height = selected.height;
+
+                            // Salva no arquivo
+                            if let Err(e) = config.app_config.save() {
+                                error!("❌ Erro ao salvar região de legendas: {}", e);
+                            } else {
+                                info!("💾 Região de legendas salva no config.json!");
+                            }
+                        }
+                        Ok(None) => info!("❌ Seleção cancelada"),
+                        Err(e) => error!("❌ Erro no seletor: {}", e),
+                    }
+                }
             }
         }
 
         // ====================================================================
-        // VERIFICA SE HÁ TRADUÇÕES PARA EXIBIR
+        // VERIFICA SE HÁ LEGENDAS DO MODO LEGENDA PARA EXIBIR
+        // ====================================================================
+        let subtitle_mode_active = *self.state.subtitle_mode_active.lock().unwrap();
+        let has_subtitles = self.state.subtitle_state.has_subtitles();
+
+        // ====================================================================
+        // VERIFICA SE HÁ TRADUÇÕES NORMAIS PARA EXIBIR
         // ====================================================================
         let should_display = if let Some((_, _, timestamp)) = self.state.get_translations() {
             timestamp.elapsed() < self.display_duration
@@ -195,7 +265,130 @@ impl eframe::App for OverlayApp {
             false
         };
 
-        if should_display {
+        // ====================================================================
+        // MODO LEGENDA: Exibe histórico de legendas acima da região
+        // ====================================================================
+        if subtitle_mode_active && has_subtitles {
+            // Pega a região de legenda do config
+            let (sub_x, sub_y, sub_w, sub_h) = {
+                let config = self.state.config.lock().unwrap();
+                (
+                    config.app_config.subtitle.region.x as f32,
+                    config.app_config.subtitle.region.y as f32,
+                    config.app_config.subtitle.region.width as f32,
+                    config.app_config.subtitle.region.height as f32,
+                )
+            };
+
+            // Pega configurações de fonte (específica de legendas) e fundo
+            let (font_size, font_color, show_background, bg_color) = {
+                let config = self.state.config.lock().unwrap();
+                (
+                    config.app_config.subtitle.font.size,
+                    config.app_config.subtitle.font.color,
+                    config.app_config.overlay.show_background,
+                    config.app_config.overlay.background_color,
+                )
+            };
+
+            // Pega o histórico de legendas
+            let history = self.state.subtitle_state.get_subtitle_history();
+
+            // Altura fixa da caixa = mesma altura da região de legenda
+            let overlay_height = sub_h;
+            let line_height = font_size + 8.0;
+
+            // Calcula quantas linhas cabem na caixa
+            let max_lines = ((overlay_height - 10.0) / line_height).floor() as usize;
+
+            // Pega apenas as últimas N legendas que cabem
+            let visible_history: Vec<_> = if history.len() > max_lines {
+                history[(history.len() - max_lines)..].to_vec()
+            } else {
+                history.clone()
+            };
+
+            // Posiciona o overlay ACIMA da região de legenda
+            let overlay_x = sub_x;
+            let overlay_y = sub_y - overlay_height - 10.0; // 10px de espaço
+            let overlay_width = sub_w;
+
+            // Posiciona e redimensiona a janela
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                eframe::egui::pos2(overlay_x, overlay_y),
+            ));
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                eframe::egui::vec2(overlay_width, overlay_height),
+            ));
+
+            // Renderiza o histórico de legendas
+            eframe::egui::CentralPanel::default()
+                .frame(eframe::egui::Frame::none().fill(eframe::egui::Color32::TRANSPARENT))
+                .show(ctx, |ui| {
+                    // Se show_background = true, desenha o fundo
+                    if show_background {
+                        let rect = ui.max_rect();
+                        ui.painter().rect_filled(
+                            rect,
+                            0.0,
+                            eframe::egui::Color32::from_rgba_unmultiplied(
+                                bg_color[0],
+                                bg_color[1],
+                                bg_color[2],
+                                bg_color[3],
+                            ),
+                        );
+                    }
+
+                    // Renderiza cada legenda do histórico (de baixo para cima)
+                    let mut y_offset = 5.0;
+                    let font_id = eframe::egui::FontId::proportional(font_size);
+
+                    for entry in &visible_history {
+                        let text = format!("-- {}", entry.translated);
+                        let text_pos = eframe::egui::pos2(10.0, y_offset);
+
+                        // Se não tem fundo, desenha contorno
+                        if !show_background {
+                            let outline_size = 2.0;
+                            let outline_color = eframe::egui::Color32::BLACK;
+                            let offsets = [
+                                (-outline_size, 0.0),
+                                (outline_size, 0.0),
+                                (0.0, -outline_size),
+                                (0.0, outline_size),
+                            ];
+
+                            for (dx, dy) in offsets {
+                                let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
+                                ui.painter().text(
+                                    offset_pos,
+                                    eframe::egui::Align2::LEFT_TOP,
+                                    &text,
+                                    font_id.clone(),
+                                    outline_color,
+                                );
+                            }
+                        }
+
+                        // Desenha o texto principal
+                        ui.painter().text(
+                            text_pos,
+                            eframe::egui::Align2::LEFT_TOP,
+                            &text,
+                            font_id.clone(),
+                            eframe::egui::Color32::from_rgba_unmultiplied(
+                                font_color[0],
+                                font_color[1],
+                                font_color[2],
+                                font_color[3],
+                            ),
+                        );
+
+                        y_offset += line_height;
+                    }
+                });
+        } else if should_display {
             // ================================================================
             // HÁ TRADUÇÃO: Mostra overlay com os textos
             // ================================================================
@@ -366,6 +559,36 @@ fn start_hotkey_thread(state: AppState) {
                         }
                     }
 
+                    hotkey::HotkeyAction::SelectSubtitleRegion => {
+                        info!("");
+                        info!("📺 ============================================");
+                        info!("📺 SOLICITANDO ABERTURA DO SELETOR DE LEGENDA");
+                        info!("📺 ============================================");
+
+                        if let Err(e) = state
+                            .command_sender
+                            .send(AppCommand::OpenSubtitleRegionSelector)
+                        {
+                            error!("❌ Erro ao enviar comando: {}", e);
+                        }
+                    }
+
+                    hotkey::HotkeyAction::ToggleSubtitleMode => {
+                        let mut active = state.subtitle_mode_active.lock().unwrap();
+                        *active = !*active;
+
+                        info!("");
+                        if *active {
+                            info!("📺 ============================================");
+                            info!("📺 MODO LEGENDA: ✅ ATIVADO");
+                            info!("📺 ============================================");
+                        } else {
+                            info!("📺 ============================================");
+                            info!("📺 MODO LEGENDA: ❌ DESATIVADO");
+                            info!("📺 ============================================");
+                        }
+                    }
+
                     hotkey::HotkeyAction::TranslateFullScreen => {
                         info!("");
                         info!("▶️  ============================================");
@@ -478,6 +701,12 @@ fn start_config_watcher(state: AppState) {
 // ============================================================================
 
 fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) -> Result<()> {
+    // === ESCONDE O OVERLAY ANTES DE CAPTURAR ===
+    {
+        let mut hidden = state.overlay_hidden.lock().unwrap();
+        *hidden = true;
+    }
+    thread::sleep(Duration::from_millis(100));
     // Verifica se usa modo memória (mais rápido) ou arquivo (debug)
     let use_memory = state
         .config
@@ -512,8 +741,10 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
                 info!("   🖥️  Tela inteira [MEMÓRIA]");
                 screenshot::capture_screen_to_memory()?
             }
-            hotkey::HotkeyAction::SelectRegion => {
-                anyhow::bail!("SelectRegion não deveria chamar process_translation")
+            hotkey::HotkeyAction::SelectRegion
+            | hotkey::HotkeyAction::SelectSubtitleRegion
+            | hotkey::HotkeyAction::ToggleSubtitleMode => {
+                anyhow::bail!("Esta ação não deveria chamar process_translation")
             }
         };
 
@@ -546,6 +777,10 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             }
             hotkey::HotkeyAction::SelectRegion => {
                 anyhow::bail!("SelectRegion não deveria chamar process_translation")
+            }
+            hotkey::HotkeyAction::SelectSubtitleRegion
+            | hotkey::HotkeyAction::ToggleSubtitleMode => {
+                unreachable!("Esta ação não deveria chamar process_translation")
             }
         };
 
@@ -743,9 +978,143 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     info!("✅ Completo!");
     info!("");
 
+    // === MOSTRA O OVERLAY DE NOVO ===
+    {
+        let mut hidden = state.overlay_hidden.lock().unwrap();
+        *hidden = false;
+    }
+
     Ok(())
 }
 
+// ============================================================================
+// THREAD DE LEGENDAS (captura contínua)
+// ============================================================================
+
+fn start_subtitle_thread(state: AppState) {
+    thread::spawn(move || {
+        info!("📺 Thread de legendas iniciada (aguardando ativação)");
+
+        loop {
+            // Verifica se o modo legenda está ativo
+            let is_active = *state.subtitle_mode_active.lock().unwrap();
+
+            if is_active {
+                // Pega configurações da região de legenda
+                let (region_x, region_y, region_w, region_h, interval_ms) = {
+                    let config = state.config.lock().unwrap();
+                    (
+                        config.app_config.subtitle.region.x,
+                        config.app_config.subtitle.region.y,
+                        config.app_config.subtitle.region.width,
+                        config.app_config.subtitle.region.height,
+                        config.app_config.subtitle.capture_interval_ms,
+                    )
+                };
+
+                // Captura a região da legenda
+                match screenshot::capture_region_to_memory(region_x, region_y, region_w, region_h) {
+                    Ok(image) => {
+                        // Executa OCR
+                        match ocr::extract_text_from_memory(&image) {
+                            Ok(ocr_result) => {
+                                // Junta todo o texto detectado
+                                let full_text = ocr_result.full_text.trim().to_string();
+
+                                // Processa o texto detectado
+                                if let Some(text_to_translate) =
+                                    state.subtitle_state.process_detected_text(&full_text)
+                                {
+                                    // Texto mudou! Traduz
+                                    let state_clone = state.clone();
+
+                                    thread::spawn(move || {
+                                        if let Err(e) = process_subtitle_translation(
+                                            &state_clone,
+                                            &text_to_translate,
+                                        ) {
+                                            error!("❌ Erro ao traduzir legenda: {}", e);
+                                        }
+                                    });
+                                }
+                            }
+                            Err(e) => {
+                                // OCR falhou silenciosamente (pode ser região sem texto)
+                                trace!("OCR falhou: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("❌ Erro ao capturar região de legenda: {}", e);
+                    }
+                }
+
+                // Aguarda o intervalo configurado
+                thread::sleep(Duration::from_millis(interval_ms));
+            } else {
+                // Modo inativo - aguarda um pouco antes de verificar novamente
+                thread::sleep(Duration::from_millis(500));
+            }
+        }
+    });
+}
+
+/// Processa a tradução de uma legenda
+fn process_subtitle_translation(state: &AppState, text: &str) -> anyhow::Result<()> {
+    info!("📺 Traduzindo legenda: \"{}\"", text);
+
+    // Pega configurações de tradução
+    let (api_key, provider, source_lang, target_lang, libre_url) = {
+        let config = state.config.lock().unwrap();
+        (
+            config.deepl_api_key.clone(),
+            config.app_config.translation.provider.clone(),
+            config.app_config.translation.source_language.clone(),
+            config.app_config.translation.target_language.clone(),
+            config.app_config.translation.libretranslate_url.clone(),
+        )
+    };
+
+    // Verifica cache primeiro
+    if let Some(cached) = state
+        .translation_cache
+        .get(&provider, &source_lang, &target_lang, text)
+    {
+        info!("   📦 Cache hit!");
+        state.subtitle_state.add_translated_subtitle(cached);
+        return Ok(());
+    }
+
+    // Traduz via API
+    let runtime = tokio::runtime::Runtime::new()?;
+    let translated = runtime.block_on(async {
+        translator::translate_batch_with_provider(
+            &[text.to_string()],
+            &provider,
+            &api_key,
+            &source_lang,
+            &target_lang,
+            Some(&libre_url),
+        )
+        .await
+    })?;
+
+    if let Some(translated_text) = translated.first() {
+        info!("   ✅ Traduzido: \"{}\"", translated_text);
+
+        // Salva no cache
+        state
+            .translation_cache
+            .set(&provider, &source_lang, &target_lang, text, translated_text);
+
+        // Adiciona ao histórico de legendas
+        state
+            .subtitle_state
+            .add_translated_subtitle(translated_text.clone());
+    }
+
+    Ok(())
+}
 // ============================================================================
 // FUNÇÃO PRINCIPAL
 // ============================================================================
@@ -770,6 +1139,7 @@ fn main() -> Result<()> {
     // Inicia threads
     start_hotkey_thread(state.clone());
     start_config_watcher(state.clone());
+    start_subtitle_thread(state.clone());
 
     info!("✅ Sistema pronto!");
     info!("   Numpad - = Tela inteira");

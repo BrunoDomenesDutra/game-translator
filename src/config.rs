@@ -65,6 +65,8 @@ pub struct HotkeyConfig {
     pub translate_fullscreen: String,
     pub translate_region: String,
     pub select_region: String,
+    pub select_subtitle_region: String,
+    pub toggle_subtitle_mode: String,
 }
 
 impl Default for HotkeyConfig {
@@ -73,6 +75,8 @@ impl Default for HotkeyConfig {
             translate_fullscreen: "NumpadSubtract".to_string(),
             translate_region: "NumpadAdd".to_string(),
             select_region: "NumpadMultiply".to_string(),
+            select_subtitle_region: "NumpadDivide".to_string(),
+            toggle_subtitle_mode: "Numpad0".to_string(),
         }
     }
 }
@@ -184,6 +188,46 @@ impl Default for TranslationConfig {
     }
 }
 
+/// Estrutura de configuração de legendas em tempo real
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubtitleConfig {
+    /// Região onde as legendas originais aparecem no jogo
+    pub region: RegionConfig,
+    /// Intervalo entre capturas em milissegundos
+    pub capture_interval_ms: u64,
+    /// Tempo mínimo de exibição da tradução (segundos)
+    pub min_display_secs: u64,
+    /// Tempo máximo de exibição da tradução (segundos)
+    pub max_display_secs: u64,
+    /// Configuração de fonte específica para legendas
+    pub font: FontConfig,
+}
+
+impl Default for SubtitleConfig {
+    fn default() -> Self {
+        SubtitleConfig {
+            region: RegionConfig {
+                x: 400,
+                y: 900,
+                width: 1200,
+                height: 100,
+            },
+            capture_interval_ms: 1000,
+            min_display_secs: 2,
+            max_display_secs: 10,
+            font: FontConfig {
+                font_type: "system".to_string(),
+                system_font_name: "Arial".to_string(),
+                file_path: "fonts/Font.ttf".to_string(),
+                size: 24.0, // Menor que o padrão para legendas
+                color: [255, 255, 255, 255],
+                shadow: ShadowConfig::default(),
+                outline: OutlineConfig::default(),
+            },
+        }
+    }
+}
+
 impl Default for DisplayConfig {
     fn default() -> Self {
         DisplayConfig {
@@ -203,6 +247,7 @@ pub struct AppConfig {
     pub hotkeys: HotkeyConfig,
     pub display: DisplayConfig,
     pub translation: TranslationConfig,
+    pub subtitle: SubtitleConfig,
 }
 
 impl Default for AppConfig {
@@ -214,6 +259,7 @@ impl Default for AppConfig {
             hotkeys: HotkeyConfig::default(),
             display: DisplayConfig::default(),
             translation: TranslationConfig::default(),
+            subtitle: SubtitleConfig::default(), // <- ADICIONE ESTA LINHA
         }
     }
 }

@@ -24,6 +24,10 @@ pub enum HotkeyAction {
     TranslateRegion,
     /// Abre o seletor de região
     SelectRegion,
+    /// Abre o seletor de região de legendas
+    SelectSubtitleRegion,
+    /// Liga/desliga o modo de legendas em tempo real
+    ToggleSubtitleMode,
 }
 
 impl HotkeyManager {
@@ -41,7 +45,7 @@ impl HotkeyManager {
     /// Verifica se alguma hotkey foi pressionada e retorna qual
     ///
     /// # Retorna
-    /// * `Some(CaptureMode)` - Se alguma hotkey foi pressionada
+    /// * `Some(HotkeyAction)` - Se alguma hotkey foi pressionada
     /// * `None` - Se nenhuma hotkey está pressionada
     pub fn check_hotkey(&mut self) -> Option<HotkeyAction> {
         // Evita múltiplas execuções rápidas (ex: <200ms)
@@ -51,10 +55,13 @@ impl HotkeyManager {
 
         let keys = self.device_state.get_keys();
 
+        // Lista de teclas e suas ações correspondentes
         let key_actions = [
             (Keycode::NumpadMultiply, HotkeyAction::SelectRegion),
             (Keycode::NumpadAdd, HotkeyAction::TranslateRegion),
             (Keycode::NumpadSubtract, HotkeyAction::TranslateFullScreen),
+            (Keycode::NumpadDivide, HotkeyAction::SelectSubtitleRegion),
+            (Keycode::Numpad0, HotkeyAction::ToggleSubtitleMode),
         ];
 
         for &(key, action) in &key_actions {
