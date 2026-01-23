@@ -57,7 +57,6 @@ enum AppCommand {
 // ============================================================================
 // ESTRUTURA DE ESTADO COMPARTILHADO
 // ============================================================================
-
 /// Estado compartilhado entre a UI (overlay) e a thread de hotkeys
 /// Região onde o texto foi capturado
 #[derive(Clone, Debug)]
@@ -67,12 +66,21 @@ struct CaptureRegion {
     width: u32,
     height: u32,
 }
+/// Modo de captura (afeta como o overlay renderiza)
+#[derive(Clone, Debug, PartialEq)]
+enum CaptureMode {
+    /// Captura de região específica - exibe texto combinado na região
+    Region,
+    /// Captura de tela inteira - exibe cada texto na posição original
+    FullScreen,
+}
 
 #[derive(Clone)]
 struct AppState {
     config: Arc<Mutex<Config>>,
     translated_items: Arc<Mutex<Vec<TranslatedText>>>,
     capture_region: Arc<Mutex<Option<CaptureRegion>>>,
+    capture_mode: Arc<Mutex<CaptureMode>>,
     translation_timestamp: Arc<Mutex<Option<std::time::Instant>>>,
     command_sender: Sender<AppCommand>,
     /// Cache de traduções
@@ -102,6 +110,7 @@ impl AppState {
             config: Arc::new(Mutex::new(config)),
             translated_items: Arc::new(Mutex::new(Vec::new())),
             capture_region: Arc::new(Mutex::new(None)),
+            capture_mode: Arc::new(Mutex::new(CaptureMode::Region)),
             translation_timestamp: Arc::new(Mutex::new(None)),
             command_sender,
             translation_cache,
@@ -112,24 +121,38 @@ impl AppState {
         }
     }
 
-    /// Define a lista de textos traduzidos com posições e a região de captura
-    fn set_translations(&self, items: Vec<TranslatedText>, region: CaptureRegion) {
+    /// Define a lista de textos traduzidos com posições, região e modo de captura
+    fn set_translations(
+        &self,
+        items: Vec<TranslatedText>,
+        region: CaptureRegion,
+        mode: CaptureMode,
+    ) {
         *self.translated_items.lock().unwrap() = items;
         *self.capture_region.lock().unwrap() = Some(region);
+        *self.capture_mode.lock().unwrap() = mode;
         *self.translation_timestamp.lock().unwrap() = Some(std::time::Instant::now());
     }
 
-    /// Obtém a lista de traduções e a região
-    fn get_translations(&self) -> Option<(Vec<TranslatedText>, CaptureRegion, std::time::Instant)> {
+    /// Obtém a lista de traduções, região, modo e timestamp
+    fn get_translations(
+        &self,
+    ) -> Option<(
+        Vec<TranslatedText>,
+        CaptureRegion,
+        CaptureMode,
+        std::time::Instant,
+    )> {
         let items = self.translated_items.lock().unwrap().clone();
         let region = self.capture_region.lock().unwrap().clone()?;
+        let mode = self.capture_mode.lock().unwrap().clone();
         let timestamp = self.translation_timestamp.lock().unwrap().clone()?;
 
         if items.is_empty() {
             return None;
         }
 
-        Some((items, region, timestamp))
+        Some((items, region, mode, timestamp))
     }
 
     /// Limpa as traduções
@@ -642,7 +665,7 @@ impl eframe::App for OverlayApp {
         // ====================================================================
         // VERIFICA SE HÁ TRADUÇÕES NORMAIS PARA EXIBIR
         // ====================================================================
-        let should_display = if let Some((_, _, timestamp)) = self.state.get_translations() {
+        let should_display = if let Some((_, _, _, timestamp)) = self.state.get_translations() {
             timestamp.elapsed() < self.display_duration
         } else {
             false
@@ -826,7 +849,7 @@ impl eframe::App for OverlayApp {
             // ================================================================
             // HÁ TRADUÇÃO: Mostra overlay com os textos
             // ================================================================
-            if let Some((items, region, _timestamp)) = self.state.get_translations() {
+            if let Some((items, region, mode, _timestamp)) = self.state.get_translations() {
                 // Pega tamanho da fonte do config
                 let font_size = self.state.config.lock().unwrap().app_config.font.size;
 
@@ -842,8 +865,8 @@ impl eframe::App for OverlayApp {
                     )
                 };
 
-                // Verifica se é modo tela cheia (região cobre toda a tela ou é grande)
-                let is_fullscreen_mode = region.width > 1000 && region.height > 500;
+                // Usa o modo de captura para decidir como renderizar
+                let is_fullscreen_mode = mode == CaptureMode::FullScreen;
 
                 if is_fullscreen_mode {
                     // ========================================================
@@ -1569,7 +1592,15 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
 
     // Envia para o overlay
     info!("🖼️  [4/4] Exibindo traduções...");
-    state.set_translations(translated_items, capture_region);
+
+    // Define o modo baseado na ação
+    let capture_mode = match action {
+        hotkey::HotkeyAction::TranslateFullScreen => CaptureMode::FullScreen,
+        hotkey::HotkeyAction::TranslateRegion => CaptureMode::Region,
+        _ => CaptureMode::Region,
+    };
+
+    state.set_translations(translated_items, capture_region, capture_mode);
 
     // ========================================================================
     // TTS - Fala a tradução (se configurado)
