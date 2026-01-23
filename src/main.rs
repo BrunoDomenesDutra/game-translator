@@ -17,6 +17,7 @@ mod ocr;
 mod overlay;
 mod region_selector;
 mod screenshot;
+mod settings_window;
 mod subtitle;
 mod translator;
 mod tts;
@@ -47,6 +48,10 @@ enum AppCommand {
     OpenRegionSelector,
     /// Abre o seletor de região de legendas
     OpenSubtitleRegionSelector,
+    /// Abre a janela de configurações
+    OpenSettings,
+    /// Fecha a janela de configurações
+    CloseSettings,
 }
 
 // ============================================================================
@@ -78,6 +83,8 @@ struct AppState {
     subtitle_state: subtitle::SubtitleState,
     /// Controla se o overlay deve ficar escondido (durante captura)
     overlay_hidden: Arc<Mutex<bool>>,
+    /// Controla se está no modo de configurações
+    settings_mode: Arc<Mutex<bool>>,
 }
 
 impl AppState {
@@ -101,6 +108,7 @@ impl AppState {
             subtitle_mode_active: Arc::new(Mutex::new(false)),
             subtitle_state,
             overlay_hidden: Arc::new(Mutex::new(false)),
+            settings_mode: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -139,6 +147,12 @@ struct OverlayApp {
     state: AppState,
     display_duration: Duration,
     command_receiver: Receiver<AppCommand>,
+    /// Cópia local das configurações para edição
+    settings_config: Option<config::AppConfig>,
+    /// Aba atual das configurações
+    settings_tab: u8,
+    /// Mensagem de status
+    settings_status: Option<(String, std::time::Instant)>,
 }
 
 impl eframe::App for OverlayApp {
@@ -247,7 +261,376 @@ impl eframe::App for OverlayApp {
                         Err(e) => error!("❌ Erro no seletor: {}", e),
                     }
                 }
+
+                AppCommand::OpenSettings => {
+                    info!("⚙️  Entrando no modo configurações...");
+
+                    // Copia as configurações atuais para edição
+                    let config = self.state.config.lock().unwrap();
+                    self.settings_config = Some(config.app_config.clone());
+                    drop(config);
+
+                    // Ativa o modo configurações
+                    *self.state.settings_mode.lock().unwrap() = true;
+                    self.settings_tab = 0;
+                    self.settings_status = None;
+                }
+
+                AppCommand::CloseSettings => {
+                    info!("⚙️  Saindo do modo configurações...");
+
+                    // Desativa o modo configurações
+                    *self.state.settings_mode.lock().unwrap() = false;
+                    self.settings_config = None;
+                }
             }
+        }
+
+        // ====================================================================
+        // MODO CONFIGURAÇÕES - Janela de edição
+        // ====================================================================
+        let is_settings_mode = *self.state.settings_mode.lock().unwrap();
+
+        if is_settings_mode {
+            // Redimensiona a janela para tamanho de configurações
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                eframe::egui::vec2(520.0, 620.0),
+            ));
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                eframe::egui::pos2(100.0, 100.0),
+            ));
+
+            // Remove transparência temporariamente
+            let visuals = eframe::egui::Visuals::dark();
+            ctx.set_visuals(visuals);
+
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                // Título
+                ui.horizontal(|ui| {
+                    ui.heading("⚙️ Game Translator - Configurações");
+                    ui.with_layout(
+                        eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
+                        |ui| {
+                            if ui.button("❌ Fechar").clicked() {
+                                *self.state.settings_mode.lock().unwrap() = false;
+                                self.settings_config = None;
+                            }
+                        },
+                    );
+                });
+
+                ui.add_space(10.0);
+
+                // Abas
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(self.settings_tab == 0, "🖼️ Overlay")
+                        .clicked()
+                    {
+                        self.settings_tab = 0;
+                    }
+                    if ui
+                        .selectable_label(self.settings_tab == 1, "🔤 Fonte")
+                        .clicked()
+                    {
+                        self.settings_tab = 1;
+                    }
+                    if ui
+                        .selectable_label(self.settings_tab == 2, "🖥️ Display")
+                        .clicked()
+                    {
+                        self.settings_tab = 2;
+                    }
+                    if ui
+                        .selectable_label(self.settings_tab == 3, "📺 Legendas")
+                        .clicked()
+                    {
+                        self.settings_tab = 3;
+                    }
+                });
+
+                ui.separator();
+                ui.add_space(10.0);
+
+                // Conteúdo das abas
+                if let Some(ref mut cfg) = self.settings_config {
+                    eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+                        match self.settings_tab {
+                            0 => {
+                                // === ABA OVERLAY ===
+                                ui.heading("🖼️ Overlay");
+                                ui.add_space(10.0);
+                                ui.checkbox(
+                                    &mut cfg.overlay.show_background,
+                                    "Mostrar fundo do overlay",
+                                );
+                                ui.label("   Se desativado, mostra apenas texto com contorno");
+                            }
+                            1 => {
+                                // === ABA FONTE ===
+                                ui.heading("🔤 Fonte (Modo Região/Tela Cheia)");
+                                ui.add_space(10.0);
+
+                                ui.horizontal(|ui| {
+                                    ui.label("Tamanho da fonte:");
+                                    ui.add(
+                                        eframe::egui::Slider::new(&mut cfg.font.size, 12.0..=72.0)
+                                            .suffix("px"),
+                                    );
+                                });
+
+                                ui.add_space(10.0);
+                                ui.checkbox(&mut cfg.font.outline.enabled, "Contorno ativado");
+
+                                if cfg.font.outline.enabled {
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Espessura:");
+                                        let mut width = cfg.font.outline.width as i32;
+                                        if ui
+                                            .add(
+                                                eframe::egui::Slider::new(&mut width, 1..=10)
+                                                    .suffix("px"),
+                                            )
+                                            .changed()
+                                        {
+                                            cfg.font.outline.width = width as u32;
+                                        }
+                                    });
+                                }
+                            }
+                            2 => {
+                                // === ABA DISPLAY ===
+                                ui.heading("🖥️ Display - Pré-processamento OCR");
+                                ui.add_space(10.0);
+
+                                ui.checkbox(
+                                    &mut cfg.display.preprocess.enabled,
+                                    "Pré-processamento ativado",
+                                );
+
+                                if cfg.display.preprocess.enabled {
+                                    ui.add_space(10.0);
+                                    ui.indent("preprocess", |ui| {
+                                        ui.checkbox(
+                                            &mut cfg.display.preprocess.grayscale,
+                                            "Escala de cinza",
+                                        );
+                                        ui.checkbox(
+                                            &mut cfg.display.preprocess.invert,
+                                            "Inverter cores",
+                                        );
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Contraste:");
+                                            ui.add(
+                                                eframe::egui::Slider::new(
+                                                    &mut cfg.display.preprocess.contrast,
+                                                    0.5..=10.0,
+                                                )
+                                                .suffix("x"),
+                                            );
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Threshold:");
+                                            let mut threshold =
+                                                cfg.display.preprocess.threshold as i32;
+                                            if ui
+                                                .add(eframe::egui::Slider::new(
+                                                    &mut threshold,
+                                                    0..=255,
+                                                ))
+                                                .changed()
+                                            {
+                                                cfg.display.preprocess.threshold = threshold as u8;
+                                            }
+                                        });
+
+                                        ui.checkbox(
+                                            &mut cfg.display.preprocess.save_debug_image,
+                                            "Salvar imagem debug",
+                                        );
+                                    });
+                                }
+                            }
+                            3 => {
+                                // === ABA LEGENDAS ===
+                                ui.heading("📺 Legendas");
+                                ui.add_space(10.0);
+
+                                ui.horizontal(|ui| {
+                                    ui.label("Intervalo de captura:");
+                                    let mut interval = cfg.subtitle.capture_interval_ms as i32;
+                                    if ui
+                                        .add(
+                                            eframe::egui::Slider::new(&mut interval, 50..=2000)
+                                                .suffix("ms"),
+                                        )
+                                        .changed()
+                                    {
+                                        cfg.subtitle.capture_interval_ms = interval as u64;
+                                    }
+                                });
+
+                                ui.horizontal(|ui| {
+                                    ui.label("Máximo de linhas:");
+                                    let mut lines = cfg.subtitle.max_lines as i32;
+                                    if ui
+                                        .add(eframe::egui::Slider::new(&mut lines, 1..=10))
+                                        .changed()
+                                    {
+                                        cfg.subtitle.max_lines = lines as usize;
+                                    }
+                                });
+
+                                ui.add_space(15.0);
+                                ui.separator();
+                                ui.label("🔤 Fonte das legendas:");
+                                ui.add_space(5.0);
+
+                                ui.horizontal(|ui| {
+                                    ui.label("   Tamanho:");
+                                    ui.add(
+                                        eframe::egui::Slider::new(
+                                            &mut cfg.subtitle.font.size,
+                                            12.0..=72.0,
+                                        )
+                                        .suffix("px"),
+                                    );
+                                });
+
+                                ui.checkbox(
+                                    &mut cfg.subtitle.font.outline.enabled,
+                                    "   Contorno ativado",
+                                );
+
+                                if cfg.subtitle.font.outline.enabled {
+                                    ui.horizontal(|ui| {
+                                        ui.label("      Espessura:");
+                                        let mut width = cfg.subtitle.font.outline.width as i32;
+                                        if ui
+                                            .add(
+                                                eframe::egui::Slider::new(&mut width, 1..=10)
+                                                    .suffix("px"),
+                                            )
+                                            .changed()
+                                        {
+                                            cfg.subtitle.font.outline.width = width as u32;
+                                        }
+                                    });
+                                }
+
+                                ui.add_space(15.0);
+                                ui.separator();
+                                ui.label("🔧 Pré-processamento OCR (Legendas):");
+                                ui.add_space(5.0);
+
+                                ui.checkbox(&mut cfg.subtitle.preprocess.enabled, "   Ativado");
+
+                                if cfg.subtitle.preprocess.enabled {
+                                    ui.indent("sub_preprocess", |ui| {
+                                        ui.checkbox(
+                                            &mut cfg.subtitle.preprocess.grayscale,
+                                            "Escala de cinza",
+                                        );
+                                        ui.checkbox(
+                                            &mut cfg.subtitle.preprocess.invert,
+                                            "Inverter cores",
+                                        );
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Contraste:");
+                                            ui.add(
+                                                eframe::egui::Slider::new(
+                                                    &mut cfg.subtitle.preprocess.contrast,
+                                                    0.5..=10.0,
+                                                )
+                                                .suffix("x"),
+                                            );
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Threshold:");
+                                            let mut threshold =
+                                                cfg.subtitle.preprocess.threshold as i32;
+                                            if ui
+                                                .add(eframe::egui::Slider::new(
+                                                    &mut threshold,
+                                                    0..=255,
+                                                ))
+                                                .changed()
+                                            {
+                                                cfg.subtitle.preprocess.threshold = threshold as u8;
+                                            }
+                                        });
+
+                                        ui.checkbox(
+                                            &mut cfg.subtitle.preprocess.save_debug_image,
+                                            "Salvar debug",
+                                        );
+                                    });
+                                }
+                            }
+                            _ => {}
+                        }
+                    });
+                }
+
+                ui.add_space(10.0);
+                ui.separator();
+
+                // Botões de ação
+                ui.horizontal(|ui| {
+                    if ui.button("💾 Salvar").clicked() {
+                        if let Some(ref cfg) = self.settings_config {
+                            // Salva no arquivo
+                            match cfg.save() {
+                                Ok(_) => {
+                                    // Atualiza as configurações em memória
+                                    let mut config = self.state.config.lock().unwrap();
+                                    config.app_config = cfg.clone();
+                                    self.settings_status =
+                                        Some(("✅ Salvo!".to_string(), std::time::Instant::now()));
+                                    info!("💾 Configurações salvas!");
+                                }
+                                Err(e) => {
+                                    self.settings_status = Some((
+                                        format!("❌ Erro: {}", e),
+                                        std::time::Instant::now(),
+                                    ));
+                                    error!("❌ Erro ao salvar: {}", e);
+                                }
+                            }
+                        }
+                    }
+
+                    if ui.button("🔄 Recarregar").clicked() {
+                        match config::AppConfig::load() {
+                            Ok(cfg) => {
+                                self.settings_config = Some(cfg);
+                                self.settings_status = Some((
+                                    "🔄 Recarregado!".to_string(),
+                                    std::time::Instant::now(),
+                                ));
+                            }
+                            Err(e) => {
+                                self.settings_status =
+                                    Some((format!("❌ Erro: {}", e), std::time::Instant::now()));
+                            }
+                        }
+                    }
+
+                    // Mostra status
+                    if let Some((ref msg, time)) = self.settings_status {
+                        if time.elapsed() < std::time::Duration::from_secs(3) {
+                            ui.label(msg);
+                        }
+                    }
+                });
+            });
+
+            ctx.request_repaint();
+            return; // Não renderiza o overlay enquanto estiver nas configurações
         }
 
         // ====================================================================
@@ -824,6 +1207,31 @@ fn start_hotkey_thread(state: AppState) {
                             }
                         });
                     }
+
+                    hotkey::HotkeyAction::OpenSettings => {
+                        // Verifica se já está no modo configurações
+                        let is_settings = *state.settings_mode.lock().unwrap();
+
+                        if is_settings {
+                            info!("");
+                            info!("⚙️  ============================================");
+                            info!("⚙️  FECHANDO JANELA DE CONFIGURAÇÕES");
+                            info!("⚙️  ============================================");
+
+                            if let Err(e) = state.command_sender.send(AppCommand::CloseSettings) {
+                                error!("❌ Erro ao enviar comando: {}", e);
+                            }
+                        } else {
+                            info!("");
+                            info!("⚙️  ============================================");
+                            info!("⚙️  ABRINDO JANELA DE CONFIGURAÇÕES");
+                            info!("⚙️  ============================================");
+
+                            if let Err(e) = state.command_sender.send(AppCommand::OpenSettings) {
+                                error!("❌ Erro ao enviar comando: {}", e);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -952,7 +1360,8 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             hotkey::HotkeyAction::SelectRegion
             | hotkey::HotkeyAction::SelectSubtitleRegion
             | hotkey::HotkeyAction::ToggleSubtitleMode
-            | hotkey::HotkeyAction::HideTranslation => {
+            | hotkey::HotkeyAction::HideTranslation
+            | hotkey::HotkeyAction::OpenSettings => {
                 anyhow::bail!("Esta ação não deveria chamar process_translation")
             }
         };
@@ -1003,7 +1412,8 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             }
             hotkey::HotkeyAction::SelectSubtitleRegion
             | hotkey::HotkeyAction::ToggleSubtitleMode
-            | hotkey::HotkeyAction::HideTranslation => {
+            | hotkey::HotkeyAction::HideTranslation
+            | hotkey::HotkeyAction::OpenSettings => {
                 unreachable!("Esta ação não deveria chamar process_translation")
             }
         };
@@ -1448,6 +1858,9 @@ fn main() -> Result<()> {
                 state: state.clone(),
                 display_duration: Duration::from_secs(display_duration),
                 command_receiver,
+                settings_config: None,
+                settings_tab: 0,
+                settings_status: None,
             }) as Box<dyn eframe::App>)
         }),
     );

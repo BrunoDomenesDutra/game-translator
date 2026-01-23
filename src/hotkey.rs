@@ -30,6 +30,8 @@ pub enum HotkeyAction {
     ToggleSubtitleMode,
     /// Esconde a tradução atual
     HideTranslation,
+    /// Abre a janela de configurações
+    OpenSettings,
 }
 
 impl HotkeyManager {
@@ -65,6 +67,7 @@ impl HotkeyManager {
             (Keycode::NumpadDivide, HotkeyAction::SelectSubtitleRegion),
             (Keycode::Numpad0, HotkeyAction::ToggleSubtitleMode),
             (Keycode::NumpadDecimal, HotkeyAction::HideTranslation),
+            (Keycode::Numpad5, HotkeyAction::OpenSettings),
         ];
 
         for &(key, action) in &key_actions {
