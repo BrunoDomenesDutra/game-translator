@@ -443,25 +443,9 @@ impl eframe::App for OverlayApp {
             // ================================================================
             // HÁ TRADUÇÃO: Mostra overlay com os textos
             // ================================================================
-            if let Some((items, region, timestamp)) = self.state.get_translations() {
-                let elapsed = timestamp.elapsed();
-
-                // Usa a região de captura para posicionar o overlay
-                let overlay_x = region.x as f32;
-                let overlay_y = region.y as f32;
-                let overlay_width = region.width as f32;
-                let overlay_height = region.height as f32;
-
+            if let Some((items, region, _timestamp)) = self.state.get_translations() {
                 // Pega tamanho da fonte do config
                 let font_size = self.state.config.lock().unwrap().app_config.font.size;
-
-                // Posiciona e redimensiona a janela
-                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
-                    eframe::egui::pos2(overlay_x, overlay_y),
-                ));
-                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
-                    eframe::egui::vec2(overlay_width, overlay_height),
-                ));
 
                 // Pega configuração de fundo e outline
                 let (show_background, bg_color, outline_enabled, outline_width, outline_color) = {
@@ -475,96 +459,253 @@ impl eframe::App for OverlayApp {
                     )
                 };
 
-                // Renderiza o conteúdo
-                eframe::egui::CentralPanel::default()
-                    .frame(eframe::egui::Frame::none().fill(eframe::egui::Color32::TRANSPARENT))
-                    .show(ctx, |ui| {
-                        // Junta todas as traduções em um texto só
-                        let combined_text: String = items
-                            .iter()
-                            .filter(|item| item.original != item.translated)
-                            .map(|item| item.translated.as_str())
-                            .collect::<Vec<&str>>()
-                            .join(" ");
+                // Verifica se é modo tela cheia (região cobre toda a tela ou é grande)
+                let is_fullscreen_mode = region.width > 1000 && region.height > 500;
 
-                        if !combined_text.is_empty() {
-                            // Se show_background = true, desenha o fundo preto
-                            if show_background {
-                                let rect = ui.max_rect();
-                                ui.painter().rect_filled(
-                                    rect,
-                                    0.0,
-                                    eframe::egui::Color32::from_rgba_unmultiplied(
-                                        bg_color[0],
-                                        bg_color[1],
-                                        bg_color[2],
-                                        bg_color[3],
-                                    ),
-                                );
-                            }
+                if is_fullscreen_mode {
+                    // ========================================================
+                    // MODO TELA CHEIA: Cada tradução na posição original
+                    // ========================================================
 
-                            // Posição inicial do texto (com margem)
-                            let text_pos = eframe::egui::pos2(20.0, 15.0);
+                    // Calcula bounding box de todos os textos
+                    let mut min_x = f64::MAX;
+                    let mut min_y = f64::MAX;
+                    let mut max_x = 0.0f64;
+                    let mut max_y = 0.0f64;
 
-                            // Configura a fonte
-                            let font_id = eframe::egui::FontId::proportional(font_size);
+                    for item in &items {
+                        if item.translated.is_empty() || item.original == item.translated {
+                            continue;
+                        }
+                        min_x = min_x.min(item.screen_x);
+                        min_y = min_y.min(item.screen_y);
+                        max_x = max_x.max(item.screen_x + item.width);
+                        max_y = max_y.max(item.screen_y + item.height);
+                    }
 
-                            // Largura máxima para wrap
-                            let max_width = overlay_width - 40.0;
+                    // Se não há textos válidos, esconde
+                    if min_x == f64::MAX {
+                        ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                            eframe::egui::vec2(1.0, 1.0),
+                        ));
+                    } else {
+                        // Adiciona margem
+                        let margin = 20.0;
+                        let overlay_x = (min_x - margin).max(0.0) as f32;
+                        let overlay_y = (min_y - margin).max(0.0) as f32;
+                        let overlay_width = (max_x - min_x + margin * 2.0) as f32;
+                        let overlay_height = (max_y - min_y + margin * 2.0 + 50.0) as f32;
 
-                            // Cria o layout do texto (com wrap)
-                            let galley = ui.painter().layout(
-                                combined_text.clone(),
-                                font_id.clone(),
-                                eframe::egui::Color32::WHITE,
-                                max_width,
-                            );
+                        // Posiciona e redimensiona a janela
+                        ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                            eframe::egui::pos2(overlay_x, overlay_y),
+                        ));
+                        ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                            eframe::egui::vec2(overlay_width, overlay_height),
+                        ));
 
-                            // Desenha contorno se habilitado OU se não tem fundo
-                            if outline_enabled || !show_background {
-                                let size = outline_width as f32;
-                                let color = eframe::egui::Color32::from_rgba_unmultiplied(
-                                    outline_color[0],
-                                    outline_color[1],
-                                    outline_color[2],
-                                    outline_color[3],
-                                );
+                        // Renderiza o conteúdo
+                        eframe::egui::CentralPanel::default()
+                            .frame(
+                                eframe::egui::Frame::none()
+                                    .fill(eframe::egui::Color32::TRANSPARENT),
+                            )
+                            .show(ctx, |ui| {
+                                let font_id = eframe::egui::FontId::proportional(font_size);
 
-                                // Gera pontos em círculo para contorno suave
-                                let num_points = (size * 8.0).max(16.0) as i32;
+                                for item in &items {
+                                    if item.translated.is_empty()
+                                        || item.original == item.translated
+                                    {
+                                        continue;
+                                    }
 
-                                for layer in 1..=(size.ceil() as i32) {
-                                    let radius = layer as f32;
+                                    // Posição relativa ao overlay
+                                    let text_x = (item.screen_x - min_x + margin) as f32;
+                                    let text_y = (item.screen_y - min_y + margin) as f32;
+                                    let text_pos = eframe::egui::pos2(text_x, text_y);
 
-                                    for i in 0..num_points {
-                                        let angle = (i as f32 / num_points as f32)
-                                            * std::f32::consts::PI
-                                            * 2.0;
-                                        let dx = angle.cos() * radius;
-                                        let dy = angle.sin() * radius;
+                                    // Largura máxima baseada na largura original do texto
+                                    let max_width = (item.width as f32 * 1.5).max(200.0);
 
-                                        let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
-                                        let outline_galley = ui.painter().layout(
-                                            combined_text.clone(),
+                                    // Se show_background, desenha fundo atrás do texto
+                                    if show_background {
+                                        let galley = ui.painter().layout(
+                                            item.translated.clone(),
                                             font_id.clone(),
-                                            color,
+                                            eframe::egui::Color32::WHITE,
                                             max_width,
                                         );
-                                        ui.painter().galley(offset_pos, outline_galley, color);
+                                        let text_rect = eframe::egui::Rect::from_min_size(
+                                            text_pos,
+                                            galley.rect.size() + eframe::egui::vec2(10.0, 6.0),
+                                        );
+                                        ui.painter().rect_filled(
+                                            text_rect,
+                                            4.0,
+                                            eframe::egui::Color32::from_rgba_unmultiplied(
+                                                bg_color[0],
+                                                bg_color[1],
+                                                bg_color[2],
+                                                bg_color[3],
+                                            ),
+                                        );
+                                    }
+
+                                    // Desenha contorno se habilitado
+                                    if outline_enabled || !show_background {
+                                        let size = outline_width as f32;
+                                        let color = eframe::egui::Color32::from_rgba_unmultiplied(
+                                            outline_color[0],
+                                            outline_color[1],
+                                            outline_color[2],
+                                            outline_color[3],
+                                        );
+
+                                        let num_points = (size * 8.0).max(16.0) as i32;
+
+                                        for layer in 1..=(size.ceil() as i32) {
+                                            let radius = layer as f32;
+
+                                            for i in 0..num_points {
+                                                let angle = (i as f32 / num_points as f32)
+                                                    * std::f32::consts::PI
+                                                    * 2.0;
+                                                let dx = angle.cos() * radius;
+                                                let dy = angle.sin() * radius;
+
+                                                let offset_pos =
+                                                    text_pos + eframe::egui::vec2(dx, dy);
+                                                let outline_galley = ui.painter().layout(
+                                                    item.translated.clone(),
+                                                    font_id.clone(),
+                                                    color,
+                                                    max_width,
+                                                );
+                                                ui.painter().galley(
+                                                    offset_pos,
+                                                    outline_galley,
+                                                    color,
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    // Desenha o texto principal
+                                    let galley = ui.painter().layout(
+                                        item.translated.clone(),
+                                        font_id.clone(),
+                                        eframe::egui::Color32::WHITE,
+                                        max_width,
+                                    );
+                                    ui.painter().galley(
+                                        text_pos,
+                                        galley,
+                                        eframe::egui::Color32::WHITE,
+                                    );
+                                }
+                            });
+                    }
+                } else {
+                    // ========================================================
+                    // MODO REGIÃO: Texto combinado em bloco único
+                    // ========================================================
+                    let overlay_x = region.x as f32;
+                    let overlay_y = region.y as f32;
+                    let overlay_width = region.width as f32;
+                    let overlay_height = region.height as f32;
+
+                    // Posiciona e redimensiona a janela
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                        eframe::egui::pos2(overlay_x, overlay_y),
+                    ));
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                        eframe::egui::vec2(overlay_width, overlay_height),
+                    ));
+
+                    // Renderiza o conteúdo
+                    eframe::egui::CentralPanel::default()
+                        .frame(eframe::egui::Frame::none().fill(eframe::egui::Color32::TRANSPARENT))
+                        .show(ctx, |ui| {
+                            // Junta todas as traduções em um texto só
+                            let combined_text: String = items
+                                .iter()
+                                .filter(|item| item.original != item.translated)
+                                .map(|item| item.translated.as_str())
+                                .collect::<Vec<&str>>()
+                                .join(" ");
+
+                            if !combined_text.is_empty() {
+                                // Se show_background = true, desenha o fundo preto
+                                if show_background {
+                                    let rect = ui.max_rect();
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        0.0,
+                                        eframe::egui::Color32::from_rgba_unmultiplied(
+                                            bg_color[0],
+                                            bg_color[1],
+                                            bg_color[2],
+                                            bg_color[3],
+                                        ),
+                                    );
+                                }
+
+                                // Posição inicial do texto (com margem)
+                                let text_pos = eframe::egui::pos2(20.0, 15.0);
+
+                                // Configura a fonte
+                                let font_id = eframe::egui::FontId::proportional(font_size);
+
+                                // Largura máxima para wrap
+                                let max_width = overlay_width - 40.0;
+
+                                // Desenha contorno se habilitado OU se não tem fundo
+                                if outline_enabled || !show_background {
+                                    let size = outline_width as f32;
+                                    let color = eframe::egui::Color32::from_rgba_unmultiplied(
+                                        outline_color[0],
+                                        outline_color[1],
+                                        outline_color[2],
+                                        outline_color[3],
+                                    );
+
+                                    let num_points = (size * 8.0).max(16.0) as i32;
+
+                                    for layer in 1..=(size.ceil() as i32) {
+                                        let radius = layer as f32;
+
+                                        for i in 0..num_points {
+                                            let angle = (i as f32 / num_points as f32)
+                                                * std::f32::consts::PI
+                                                * 2.0;
+                                            let dx = angle.cos() * radius;
+                                            let dy = angle.sin() * radius;
+
+                                            let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
+                                            let outline_galley = ui.painter().layout(
+                                                combined_text.clone(),
+                                                font_id.clone(),
+                                                color,
+                                                max_width,
+                                            );
+                                            ui.painter().galley(offset_pos, outline_galley, color);
+                                        }
                                     }
                                 }
+
+                                // Desenha o texto principal
+                                let galley = ui.painter().layout(
+                                    combined_text.clone(),
+                                    font_id.clone(),
+                                    eframe::egui::Color32::WHITE,
+                                    max_width,
+                                );
+                                ui.painter()
+                                    .galley(text_pos, galley, eframe::egui::Color32::WHITE);
                             }
-
-                            // Desenha o texto principal (branco) por cima
-                            ui.painter()
-                                .galley(text_pos, galley, eframe::egui::Color32::WHITE);
-                        }
-                    });
-
-                // Verifica se o tempo acabou
-                // if elapsed >= self.display_duration {
-                //     self.state.clear_translations();
-                // }
+                        });
+                }
             }
         } else {
             // ================================================================
@@ -966,9 +1107,16 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     );
 
     // Monta lista com posições
-    let (region_x, region_y) = {
-        let config = state.config.lock().unwrap();
-        (config.region_x as f64, config.region_y as f64)
+    // Calcula offset baseado no modo (região ou tela cheia)
+    let (offset_x, offset_y) = match action {
+        hotkey::HotkeyAction::TranslateRegion => {
+            let config = state.config.lock().unwrap();
+            (config.region_x as f64, config.region_y as f64)
+        }
+        hotkey::HotkeyAction::TranslateFullScreen => {
+            (0.0, 0.0) // Tela cheia: coordenadas já são absolutas
+        }
+        _ => (0.0, 0.0),
     };
 
     let translated_items: Vec<TranslatedText> = ocr_result
@@ -976,10 +1124,10 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
         .iter()
         .zip(translated_texts.iter())
         .map(|(detected, translated)| TranslatedText {
-            original: detected.text.clone(),
+            original: ocr::clean_ocr_text(&detected.text),
             translated: translated.clone(),
-            screen_x: detected.x + region_x,
-            screen_y: detected.y + region_y,
+            screen_x: detected.x + offset_x,
+            screen_y: detected.y + offset_y,
             width: detected.width,
             height: detected.height,
         })
