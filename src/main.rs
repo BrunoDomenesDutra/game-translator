@@ -600,6 +600,176 @@ impl eframe::App for OverlayApp {
                                     });
                                 }
                             }
+                            4 => {
+                                // === ABA ATALHOS ===
+                                ui.heading("⌨️ Teclas de Atalho");
+                                ui.add_space(10.0);
+
+                                ui.label("Selecione a tecla para cada ação:");
+                                ui.add_space(10.0);
+
+                                // Lista de teclas disponíveis
+                                let teclas_disponiveis = vec![
+                                    "Numpad0",
+                                    "Numpad1",
+                                    "Numpad2",
+                                    "Numpad3",
+                                    "Numpad4",
+                                    "Numpad5",
+                                    "Numpad6",
+                                    "Numpad7",
+                                    "Numpad8",
+                                    "Numpad9",
+                                    "NumpadAdd",
+                                    "NumpadSubtract",
+                                    "NumpadMultiply",
+                                    "NumpadDivide",
+                                    "NumpadDecimal",
+                                    "F1",
+                                    "F2",
+                                    "F3",
+                                    "F4",
+                                    "F5",
+                                    "F6",
+                                    "F7",
+                                    "F8",
+                                    "F9",
+                                    "F10",
+                                    "F11",
+                                    "F12",
+                                ];
+
+                                ui.group(|ui| {
+                                    ui.label("🖥️ Tela Cheia:");
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Capturar e traduzir:");
+                                        eframe::egui::ComboBox::from_id_source("hotkey_fullscreen")
+                                            .selected_text(&cfg.hotkeys.translate_fullscreen)
+                                            .show_ui(ui, |ui: &mut eframe::egui::Ui| {
+                                                for tecla in &teclas_disponiveis {
+                                                    ui.selectable_value(
+                                                        &mut cfg.hotkeys.translate_fullscreen,
+                                                        tecla.to_string(),
+                                                        *tecla,
+                                                    );
+                                                }
+                                            });
+                                    });
+                                });
+
+                                ui.add_space(10.0);
+
+                                ui.group(|ui| {
+                                    ui.label("🎯 Captura em Área:");
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Selecionar área:");
+                                        eframe::egui::ComboBox::from_id_source(
+                                            "hotkey_select_region",
+                                        )
+                                        .selected_text(&cfg.hotkeys.select_region)
+                                        .show_ui(
+                                            ui,
+                                            |ui: &mut eframe::egui::Ui| {
+                                                for tecla in &teclas_disponiveis {
+                                                    ui.selectable_value(
+                                                        &mut cfg.hotkeys.select_region,
+                                                        tecla.to_string(),
+                                                        *tecla,
+                                                    );
+                                                }
+                                            },
+                                        );
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Traduzir área:");
+                                        eframe::egui::ComboBox::from_id_source(
+                                            "hotkey_translate_region",
+                                        )
+                                        .selected_text(&cfg.hotkeys.translate_region)
+                                        .show_ui(
+                                            ui,
+                                            |ui: &mut eframe::egui::Ui| {
+                                                for tecla in &teclas_disponiveis {
+                                                    ui.selectable_value(
+                                                        &mut cfg.hotkeys.translate_region,
+                                                        tecla.to_string(),
+                                                        *tecla,
+                                                    );
+                                                }
+                                            },
+                                        );
+                                    });
+                                });
+
+                                ui.add_space(10.0);
+
+                                ui.group(|ui| {
+                                    ui.label("📺 Modo Legenda:");
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Selecionar área:");
+                                        eframe::egui::ComboBox::from_id_source(
+                                            "hotkey_select_subtitle",
+                                        )
+                                        .selected_text(&cfg.hotkeys.select_subtitle_region)
+                                        .show_ui(
+                                            ui,
+                                            |ui: &mut eframe::egui::Ui| {
+                                                for tecla in &teclas_disponiveis {
+                                                    ui.selectable_value(
+                                                        &mut cfg.hotkeys.select_subtitle_region,
+                                                        tecla.to_string(),
+                                                        *tecla,
+                                                    );
+                                                }
+                                            },
+                                        );
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Ligar/Desligar:");
+                                        eframe::egui::ComboBox::from_id_source(
+                                            "hotkey_toggle_subtitle",
+                                        )
+                                        .selected_text(&cfg.hotkeys.toggle_subtitle_mode)
+                                        .show_ui(
+                                            ui,
+                                            |ui: &mut eframe::egui::Ui| {
+                                                for tecla in &teclas_disponiveis {
+                                                    ui.selectable_value(
+                                                        &mut cfg.hotkeys.toggle_subtitle_mode,
+                                                        tecla.to_string(),
+                                                        *tecla,
+                                                    );
+                                                }
+                                            },
+                                        );
+                                    });
+                                });
+
+                                ui.add_space(10.0);
+
+                                ui.group(|ui| {
+                                    ui.label("🔧 Outros:");
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Esconder tradução:");
+                                        eframe::egui::ComboBox::from_id_source("hotkey_hide")
+                                            .selected_text(&cfg.hotkeys.hide_translation)
+                                            .show_ui(ui, |ui: &mut eframe::egui::Ui| {
+                                                for tecla in &teclas_disponiveis {
+                                                    ui.selectable_value(
+                                                        &mut cfg.hotkeys.hide_translation,
+                                                        tecla.to_string(),
+                                                        *tecla,
+                                                    );
+                                                }
+                                            });
+                                    });
+                                });
+
+                                ui.add_space(15.0);
+                                ui.separator();
+                                ui.add_space(5.0);
+                                ui.label("⚠️ Reinicie o programa após alterar os atalhos.");
+                            }
                             _ => {}
                         }
                     });
@@ -1148,7 +1318,9 @@ fn start_hotkey_thread(state: AppState) {
     thread::spawn(move || {
         info!("⌨️  Thread de hotkeys iniciada");
 
-        let mut hotkey_manager = hotkey::HotkeyManager::new();
+        // Pega as configurações de hotkeys
+        let hotkeys = state.config.lock().unwrap().app_config.hotkeys.clone();
+        let mut hotkey_manager = hotkey::HotkeyManager::new(&hotkeys);
 
         loop {
             if let Some(action) = hotkey_manager.check_hotkey() {
