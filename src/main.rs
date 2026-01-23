@@ -407,27 +407,28 @@ impl eframe::App for OverlayApp {
                                 outline_color[3],
                             );
 
-                            // Offsets para criar contorno em todas as direções
-                            let offsets = [
-                                (-size, -size),
-                                (0.0, -size),
-                                (size, -size),
-                                (-size, 0.0),
-                                (size, 0.0),
-                                (-size, size),
-                                (0.0, size),
-                                (size, size),
-                            ];
+                            // Gera pontos em círculo para contorno suave
+                            // Quanto maior o size, mais pontos precisamos
+                            let num_points = (size * 8.0).max(16.0) as i32;
 
-                            for (dx, dy) in offsets {
-                                let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
-                                let outline_galley = ui.painter().layout(
-                                    text.clone(),
-                                    font_id.clone(),
-                                    color,
-                                    max_width,
-                                );
-                                ui.painter().galley(offset_pos, outline_galley, color);
+                            for layer in 1..=(size.ceil() as i32) {
+                                let radius = layer as f32;
+
+                                for i in 0..num_points {
+                                    let angle =
+                                        (i as f32 / num_points as f32) * std::f32::consts::PI * 2.0;
+                                    let dx = angle.cos() * radius;
+                                    let dy = angle.sin() * radius;
+
+                                    let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
+                                    let outline_galley = ui.painter().layout(
+                                        text.clone(),
+                                        font_id.clone(),
+                                        color,
+                                        max_width,
+                                    );
+                                    ui.painter().galley(offset_pos, outline_galley, color);
+                                }
                             }
                         }
 
