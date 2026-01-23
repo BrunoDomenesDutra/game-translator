@@ -381,11 +381,7 @@ impl eframe::App for SettingsWindow {
 
 /// Abre a janela de configurações em uma thread separada
 pub fn open_settings_window(config: AppConfig) {
-    info!("⚙️  Iniciando thread da janela de configurações...");
-
     std::thread::spawn(move || {
-        info!("⚙️  Thread iniciada, criando janela...");
-
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([500.0, 600.0])
@@ -394,17 +390,10 @@ pub fn open_settings_window(config: AppConfig) {
             ..Default::default()
         };
 
-        info!("⚙️  Chamando eframe::run_native...");
-
-        let result = eframe::run_native(
+        let _ = eframe::run_native(
             "Game Translator Settings",
             options,
             Box::new(|_cc| Ok(Box::new(SettingsWindow::new(config)))),
         );
-
-        match result {
-            Ok(_) => info!("⚙️  Janela de configurações fechada normalmente"),
-            Err(e) => error!("❌ Erro ao abrir janela de configurações: {}", e),
-        }
     });
 }

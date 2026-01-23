@@ -93,3 +93,11 @@ urlencoding = "2.1"
 # Para manipular estilos de janela (click-through)
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser"] }
+
+# === SYSTEM TRAY ===
+# Ícone na bandeja do sistema (perto do relógio)
+tray-icon = "0.14"
+
+# === MENUS NATIVOS ===
+# Para criar menus no system tray
+muda = "0.11"

@@ -370,6 +370,12 @@ impl eframe::App for OverlayApp {
                     {
                         self.settings_tab = 3;
                     }
+                    if ui
+                        .selectable_label(self.settings_tab == 4, "⌨️ Atalhos")
+                        .clicked()
+                    {
+                        self.settings_tab = 4;
+                    }
                 });
 
                 ui.separator();

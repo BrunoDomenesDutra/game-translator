@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 863,
-    "y": 585,
-    "width": 834,
-    "height": 298
+    "x": 239,
+    "y": 514,
+    "width": 919,
+    "height": 192
   },
   "overlay": {
     "x": 265,
@@ -18,13 +18,13 @@
       235
     ],
     "background_image_path": "backgrounds/custom.png",
-    "show_background": false
+    "show_background": true
   },
   "font": {
     "font_type": "system",
     "system_font_name": "Arial",
     "file_path": "fonts/Font.ttf",
-    "size": 40.0,
+    "size": 17.0,
     "color": [
       255,
       255,
