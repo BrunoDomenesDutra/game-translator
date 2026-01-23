@@ -218,12 +218,14 @@ fn buffer_to_image(buffer: &screenshots::Image) -> DynamicImage {
 /// Pré-processa uma imagem para melhorar o OCR
 /// - Converte para escala de cinza
 /// - Aumenta contraste
+/// - Aplica threshold (binarização)
 /// - Inverte cores (texto branco -> texto preto)
 pub fn preprocess_image(
     image: &image::DynamicImage,
     grayscale: bool,
     invert: bool,
     contrast: f32,
+    threshold: u8,
     save_debug: bool,
 ) -> image::DynamicImage {
     let mut processed = image.clone();
@@ -240,12 +242,32 @@ pub fn preprocess_image(
         processed = processed.adjust_contrast(contrast);
     }
 
-    // 3. Inverte cores
+    // 3. Aplica threshold (binarização) se > 0
+    if threshold > 0 {
+        let rgb = processed.to_rgb8();
+        let (width, height) = rgb.dimensions();
+
+        let mut binary = image::RgbImage::new(width, height);
+
+        for (x, y, pixel) in rgb.enumerate_pixels() {
+            // Calcula luminância do pixel
+            let luma =
+                (0.299 * pixel[0] as f32 + 0.587 * pixel[1] as f32 + 0.114 * pixel[2] as f32) as u8;
+
+            // Aplica threshold: acima = branco, abaixo = preto
+            let value = if luma > threshold { 255 } else { 0 };
+            binary.put_pixel(x, y, image::Rgb([value, value, value]));
+        }
+
+        processed = image::DynamicImage::ImageRgb8(binary);
+    }
+
+    // 4. Inverte cores
     if invert {
         processed.invert();
     }
 
-    // 4. Salva imagem de debug se solicitado
+    // 5. Salva imagem de debug se solicitado
     if save_debug {
         if let Err(e) = processed.save("debug_preprocessed.png") {
             error!("❌ Erro ao salvar imagem de debug: {}", e);

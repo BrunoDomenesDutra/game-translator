@@ -463,23 +463,17 @@ impl eframe::App for OverlayApp {
                     eframe::egui::vec2(overlay_width, overlay_height),
                 ));
 
-                // Pega configuração de fundo
-                let show_background = self
-                    .state
-                    .config
-                    .lock()
-                    .unwrap()
-                    .app_config
-                    .overlay
-                    .show_background;
-                let bg_color = self
-                    .state
-                    .config
-                    .lock()
-                    .unwrap()
-                    .app_config
-                    .overlay
-                    .background_color;
+                // Pega configuração de fundo e outline
+                let (show_background, bg_color, outline_enabled, outline_width, outline_color) = {
+                    let config = self.state.config.lock().unwrap();
+                    (
+                        config.app_config.overlay.show_background,
+                        config.app_config.overlay.background_color,
+                        config.app_config.font.outline.enabled,
+                        config.app_config.font.outline.width,
+                        config.app_config.font.outline.color,
+                    )
+                };
 
                 // Renderiza o conteúdo
                 eframe::egui::CentralPanel::default()
@@ -526,31 +520,38 @@ impl eframe::App for OverlayApp {
                                 max_width,
                             );
 
-                            // Se não tem fundo, desenha contorno
-                            if !show_background {
-                                let outline_size = 2.0;
-                                let outline_color = eframe::egui::Color32::BLACK;
-                                let offsets = [
-                                    (-outline_size, -outline_size),
-                                    (0.0, -outline_size),
-                                    (outline_size, -outline_size),
-                                    (-outline_size, 0.0),
-                                    (outline_size, 0.0),
-                                    (-outline_size, outline_size),
-                                    (0.0, outline_size),
-                                    (outline_size, outline_size),
-                                ];
+                            // Desenha contorno se habilitado OU se não tem fundo
+                            if outline_enabled || !show_background {
+                                let size = outline_width as f32;
+                                let color = eframe::egui::Color32::from_rgba_unmultiplied(
+                                    outline_color[0],
+                                    outline_color[1],
+                                    outline_color[2],
+                                    outline_color[3],
+                                );
 
-                                for (dx, dy) in offsets {
-                                    let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
-                                    let outline_galley = ui.painter().layout(
-                                        combined_text.clone(),
-                                        font_id.clone(),
-                                        outline_color,
-                                        max_width,
-                                    );
-                                    ui.painter()
-                                        .galley(offset_pos, outline_galley, outline_color);
+                                // Gera pontos em círculo para contorno suave
+                                let num_points = (size * 8.0).max(16.0) as i32;
+
+                                for layer in 1..=(size.ceil() as i32) {
+                                    let radius = layer as f32;
+
+                                    for i in 0..num_points {
+                                        let angle = (i as f32 / num_points as f32)
+                                            * std::f32::consts::PI
+                                            * 2.0;
+                                        let dx = angle.cos() * radius;
+                                        let dy = angle.sin() * radius;
+
+                                        let offset_pos = text_pos + eframe::egui::vec2(dx, dy);
+                                        let outline_galley = ui.painter().layout(
+                                            combined_text.clone(),
+                                            font_id.clone(),
+                                            color,
+                                            max_width,
+                                        );
+                                        ui.painter().galley(offset_pos, outline_galley, color);
+                                    }
                                 }
                             }
 
@@ -778,6 +779,12 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
 
     info!("📸 [1/4] Capturando tela...");
 
+    // Pega configurações de pré-processamento
+    let preprocess_config = {
+        let config = state.config.lock().unwrap();
+        config.app_config.display.preprocess.clone()
+    };
+
     // OCR result vai ser preenchido de acordo com o modo
     let ocr_result = if use_memory {
         // ====================================================================
@@ -809,9 +816,23 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             }
         };
 
+        // Aplica pré-processamento se habilitado
+        let processed_image = if preprocess_config.enabled {
+            screenshot::preprocess_image(
+                &image,
+                preprocess_config.grayscale,
+                preprocess_config.invert,
+                preprocess_config.contrast,
+                preprocess_config.threshold,
+                preprocess_config.save_debug_image,
+            )
+        } else {
+            image
+        };
+
         info!("✅ Screenshot capturada em memória!");
         info!("🔍 [2/4] Executando OCR...");
-        ocr::extract_text_from_memory(&image)?
+        ocr::extract_text_from_memory(&processed_image)?
     } else {
         // ====================================================================
         // MODO ARQUIVO (DEBUG) - Salva screenshot.png em disco
@@ -839,8 +860,7 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             hotkey::HotkeyAction::SelectRegion => {
                 anyhow::bail!("SelectRegion não deveria chamar process_translation")
             }
-            hotkey::HotkeyAction::SelectRegion
-            | hotkey::HotkeyAction::SelectSubtitleRegion
+            hotkey::HotkeyAction::SelectSubtitleRegion
             | hotkey::HotkeyAction::ToggleSubtitleMode
             | hotkey::HotkeyAction::HideTranslation => {
                 unreachable!("Esta ação não deveria chamar process_translation")
@@ -859,11 +879,11 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
 
     info!("   📍 {} linhas detectadas", ocr_result.lines.len());
 
-    // Extrai textos para traduzir
+    // Extrai textos para traduzir e limpa erros de OCR
     let texts_to_translate: Vec<String> = ocr_result
         .lines
         .iter()
-        .map(|line| line.text.clone())
+        .map(|line| ocr::clean_ocr_text(&line.text))
         .collect();
 
     // Tradução em batch
@@ -1096,11 +1116,13 @@ fn start_subtitle_thread(state: AppState) {
                     Ok(image) => {
                         // Aplica pré-processamento se habilitado
                         let processed_image = if preprocess_config.enabled {
+                            info!("   🔧 Aplicando pré-processamento...");
                             screenshot::preprocess_image(
                                 &image,
                                 preprocess_config.grayscale,
                                 preprocess_config.invert,
                                 preprocess_config.contrast,
+                                preprocess_config.threshold,
                                 preprocess_config.save_debug_image,
                             )
                         } else {
@@ -1110,8 +1132,8 @@ fn start_subtitle_thread(state: AppState) {
                         // Executa OCR
                         match ocr::extract_text_from_memory(&processed_image) {
                             Ok(ocr_result) => {
-                                // Junta todo o texto detectado
-                                let full_text = ocr_result.full_text.trim().to_string();
+                                // Junta todo o texto detectado e limpa erros de OCR
+                                let full_text = ocr::clean_ocr_text(&ocr_result.full_text);
 
                                 // Se detectou texto, atualiza o tempo
                                 if full_text.len() >= 3 {

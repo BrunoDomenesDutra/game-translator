@@ -151,13 +151,14 @@ impl Default for FontConfig {
 /// Estrutura de configuração de exibição
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayConfig {
+    /// Duração da exibição do overlay em segundos
     pub overlay_duration_secs: u64,
-    /// Se true, processa OCR direto da memória (mais rápido)
-    /// Se false, salva screenshot em disco primeiro (mais lento, mas útil para debug)
+    /// Usar captura em memória (mais rápido)
     pub use_memory_capture: bool,
-    /// Se true, ativa Text-to-Speech (ElevenLabs)
-    /// Se false, apenas exibe tradução sem áudio
+    /// Habilitar TTS
     pub tts_enabled: bool,
+    /// Pré-processamento de imagem para OCR
+    pub preprocess: PreprocessConfig,
 }
 
 /// Estrutura de configuração de tradução
@@ -201,6 +202,9 @@ pub struct PreprocessConfig {
     pub invert: bool,
     /// Fator de contraste (1.0 = normal, >1 = mais contraste)
     pub contrast: f32,
+    /// Threshold para binarização (0-255, 0 = desabilitado)
+    /// Pixels acima do threshold = branco, abaixo = preto
+    pub threshold: u8,
     /// Salva imagem processada para debug
     pub save_debug_image: bool,
 }
@@ -212,6 +216,7 @@ impl Default for PreprocessConfig {
             grayscale: true,
             invert: true,
             contrast: 1.5,
+            threshold: 0,
             save_debug_image: false,
         }
     }
@@ -266,9 +271,10 @@ impl Default for SubtitleConfig {
 impl Default for DisplayConfig {
     fn default() -> Self {
         DisplayConfig {
-            overlay_duration_secs: 5,
+            overlay_duration_secs: 10,
             use_memory_capture: true,
-            tts_enabled: true, // TTS ligado por padrão
+            tts_enabled: false,
+            preprocess: PreprocessConfig::default(),
         }
     }
 }

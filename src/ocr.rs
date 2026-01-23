@@ -279,3 +279,52 @@ fn extract_lines_from_result(
 
     Ok(OcrResultWithPositions { full_text, lines })
 }
+
+/// Limpa texto do OCR corrigindo erros comuns de reconhecimento
+pub fn clean_ocr_text(text: &str) -> String {
+    let mut cleaned = text.to_string();
+
+    // Substituições de padrões comuns de erro do OCR
+    let replacements = [
+        // Letra K confundida
+        ("|<", "K"),
+        ("l<", "K"),
+        ("|{", "K"),
+        // Letra I confundida
+        ("|", "I"), // Cuidado: só aplicar em contextos específicos
+        // Letra O e zero
+        // ("0", "O"),  // Perigoso, pode ter números reais
+        // Outros
+        ("@", "a"),
+        ("}{", "H"),
+        ("][", "I"),
+        ("|-|", "H"),
+        ("/\\", "A"),
+        ("\\/", "V"),
+    ];
+
+    for (wrong, correct) in replacements {
+        cleaned = cleaned.replace(wrong, correct);
+    }
+
+    // Remove caracteres estranhos que não deveriam estar em legendas
+    // Mantém letras, números, espaços, pontuação básica
+    cleaned = cleaned
+        .chars()
+        .filter(|c| {
+            c.is_alphanumeric()
+                || c.is_whitespace()
+                || matches!(
+                    c,
+                    '.' | ',' | '!' | '?' | '\'' | '"' | '-' | ':' | ';' | '(' | ')' | '…'
+                )
+        })
+        .collect();
+
+    // Remove espaços duplicados
+    while cleaned.contains("  ") {
+        cleaned = cleaned.replace("  ", " ");
+    }
+
+    cleaned.trim().to_string()
+}
