@@ -214,3 +214,45 @@ fn buffer_to_image(buffer: &screenshots::Image) -> DynamicImage {
 
     DynamicImage::ImageRgba8(img_buffer)
 }
+
+/// Pré-processa uma imagem para melhorar o OCR
+/// - Converte para escala de cinza
+/// - Aumenta contraste
+/// - Inverte cores (texto branco -> texto preto)
+pub fn preprocess_image(
+    image: &image::DynamicImage,
+    grayscale: bool,
+    invert: bool,
+    contrast: f32,
+    save_debug: bool,
+) -> image::DynamicImage {
+    let mut processed = image.clone();
+
+    // 1. Converte para escala de cinza
+    if grayscale {
+        processed = image::DynamicImage::ImageLuma8(processed.to_luma8());
+        // Converte de volta para RGB para manter compatibilidade
+        processed = image::DynamicImage::ImageRgb8(processed.to_rgb8());
+    }
+
+    // 2. Aumenta contraste
+    if contrast != 1.0 {
+        processed = processed.adjust_contrast(contrast);
+    }
+
+    // 3. Inverte cores
+    if invert {
+        processed.invert();
+    }
+
+    // 4. Salva imagem de debug se solicitado
+    if save_debug {
+        if let Err(e) = processed.save("debug_preprocessed.png") {
+            error!("❌ Erro ao salvar imagem de debug: {}", e);
+        } else {
+            trace!("📸 Imagem de debug salva: debug_preprocessed.png");
+        }
+    }
+
+    processed
+}

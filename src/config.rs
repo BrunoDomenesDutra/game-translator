@@ -190,6 +190,33 @@ impl Default for TranslationConfig {
     }
 }
 
+/// Configuração de pré-processamento de imagem para OCR
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreprocessConfig {
+    /// Habilita pré-processamento
+    pub enabled: bool,
+    /// Converte para escala de cinza
+    pub grayscale: bool,
+    /// Inverte cores (branco <-> preto)
+    pub invert: bool,
+    /// Fator de contraste (1.0 = normal, >1 = mais contraste)
+    pub contrast: f32,
+    /// Salva imagem processada para debug
+    pub save_debug_image: bool,
+}
+
+impl Default for PreprocessConfig {
+    fn default() -> Self {
+        PreprocessConfig {
+            enabled: false,
+            grayscale: true,
+            invert: true,
+            contrast: 1.5,
+            save_debug_image: false,
+        }
+    }
+}
+
 /// Estrutura de configuração de legendas em tempo real
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubtitleConfig {
@@ -205,6 +232,8 @@ pub struct SubtitleConfig {
     pub font: FontConfig,
     /// Número máximo de legendas visíveis
     pub max_lines: usize,
+    /// Pré-processamento de imagem para OCR
+    pub preprocess: PreprocessConfig,
 }
 
 impl Default for SubtitleConfig {
@@ -229,6 +258,7 @@ impl Default for SubtitleConfig {
                 outline: OutlineConfig::default(),
             },
             max_lines: 3,
+            preprocess: PreprocessConfig::default(),
         }
     }
 }

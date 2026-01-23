@@ -75,10 +75,10 @@
   },
   "subtitle": {
     "region": {
-      "x": 723,
-      "y": 1195,
-      "width": 1066,
-      "height": 174
+      "x": 795,
+      "y": 1193,
+      "width": 990,
+      "height": 190
     },
     "capture_interval_ms": 200,
     "min_display_secs": 2,
@@ -117,6 +117,13 @@
         ]
       }
     },
-    "max_lines": 2
+    "max_lines": 2,
+    "preprocess": {
+      "enabled": true,
+      "grayscale": true,
+      "invert": true,
+      "contrast": 1.5,
+      "save_debug_image": true
+    }
   }
 }

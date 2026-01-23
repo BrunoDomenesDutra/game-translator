@@ -1085,11 +1085,30 @@ fn start_subtitle_thread(state: AppState) {
                     )
                 };
 
+                // Pega configurações de pré-processamento
+                let preprocess_config = {
+                    let config = state.config.lock().unwrap();
+                    config.app_config.subtitle.preprocess.clone()
+                };
+
                 // Captura a região da legenda
                 match screenshot::capture_region_to_memory(region_x, region_y, region_w, region_h) {
                     Ok(image) => {
+                        // Aplica pré-processamento se habilitado
+                        let processed_image = if preprocess_config.enabled {
+                            screenshot::preprocess_image(
+                                &image,
+                                preprocess_config.grayscale,
+                                preprocess_config.invert,
+                                preprocess_config.contrast,
+                                preprocess_config.save_debug_image,
+                            )
+                        } else {
+                            image
+                        };
+
                         // Executa OCR
-                        match ocr::extract_text_from_memory(&image) {
+                        match ocr::extract_text_from_memory(&processed_image) {
                             Ok(ocr_result) => {
                                 // Junta todo o texto detectado
                                 let full_text = ocr_result.full_text.trim().to_string();
