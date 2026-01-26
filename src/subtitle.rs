@@ -32,8 +32,6 @@ const MIN_TEXT_LENGTH: usize = 3;
 pub struct SubtitleEntry {
     /// Texto traduzido
     pub translated: String,
-    /// Momento em que foi adicionada
-    pub added_at: Instant,
 }
 
 /// Estado do candidato a legenda (para debounce)
@@ -41,8 +39,6 @@ pub struct SubtitleEntry {
 struct SubtitleCandidate {
     /// Texto detectado
     text: String,
-    /// Quando foi detectado pela primeira vez
-    first_seen: Instant,
     /// Quantas vezes foi visto consecutivamente
     seen_count: u32,
 }
@@ -147,7 +143,6 @@ impl SubtitleState {
                     info!("📺 Novo candidato detectado: \"{}\"", new_text.trim());
                     *candidate = Some(SubtitleCandidate {
                         text: new_text.trim().to_string(),
-                        first_seen: Instant::now(),
                         seen_count: 1,
                     });
                     return None;
@@ -158,7 +153,6 @@ impl SubtitleState {
                 info!("📺 Primeiro candidato detectado: \"{}\"", new_text.trim());
                 *candidate = Some(SubtitleCandidate {
                     text: new_text.trim().to_string(),
-                    first_seen: Instant::now(),
                     seen_count: 1,
                 });
                 return None;
@@ -191,10 +185,7 @@ impl SubtitleState {
         let mut history = self.subtitle_history.lock().unwrap();
 
         // Adiciona a nova legenda
-        history.push(SubtitleEntry {
-            translated,
-            added_at: Instant::now(),
-        });
+        history.push(SubtitleEntry { translated });
 
         // Remove legendas antigas se exceder o limite
         while history.len() > MAX_SUBTITLE_HISTORY {
@@ -214,14 +205,6 @@ impl SubtitleState {
     pub fn has_subtitles(&self) -> bool {
         let history = self.subtitle_history.lock().unwrap();
         !history.is_empty()
-    }
-
-    /// Limpa o histórico (quando desativa o modo legenda)
-    pub fn clear(&self) {
-        *self.last_confirmed_text.lock().unwrap() = String::new();
-        *self.current_candidate.lock().unwrap() = None;
-        self.subtitle_history.lock().unwrap().clear();
-        info!("📺 Histórico de legendas limpo");
     }
 }
 

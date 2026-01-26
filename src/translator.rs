@@ -104,9 +104,9 @@ pub async fn translate_batch_with_provider(
 }
 
 /// Função de compatibilidade (usa DeepL por padrão)
-pub async fn translate_batch(texts: &[String], api_key: &str) -> Result<Vec<String>> {
-    translate_batch_deepl(texts, api_key, "EN", "PT-BR").await
-}
+// pub async fn translate_batch(texts: &[String], api_key: &str) -> Result<Vec<String>> {
+//     translate_batch_deepl(texts, api_key, "EN", "PT-BR").await
+// }
 
 // ============================================================================
 // DeepL TRADUTOR
@@ -341,7 +341,7 @@ async fn translate_batch_libretranslate(
     texts: &[String],
     source_lang: &str,
     target_lang: &str,
-    base_url: &str,
+    _base_url: &str,
 ) -> Result<Vec<String>> {
     info!("🌐 [LibreTranslate LOCAL] Iniciando tradução em batch...");
     info!("   📝 {} textos para traduzir", texts.len());

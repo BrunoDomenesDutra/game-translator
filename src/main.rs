@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 // game-translator/src/main.rs
 
 // ============================================================================
@@ -14,10 +16,8 @@ mod cache;
 mod config;
 mod hotkey;
 mod ocr;
-mod overlay;
 mod region_selector;
 mod screenshot;
-mod settings_window;
 mod subtitle;
 mod translator;
 mod tts;
@@ -183,7 +183,7 @@ impl eframe::App for OverlayApp {
         [0.0, 0.0, 0.0, 0.0] // Totalmente transparente
     }
 
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) {
         // ====================================================================
         // TORNA A JANELA CLICK-THROUGH (apenas uma vez)
         // ====================================================================
@@ -334,6 +334,10 @@ impl eframe::App for OverlayApp {
                     ui.with_layout(
                         eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
                         |ui| {
+                            if ui.button("🚪 Sair do Programa").clicked() {
+                                std::process::exit(0);
+                            }
+                            ui.add_space(10.0);
                             if ui.button("❌ Fechar").clicked() {
                                 *self.state.settings_mode.lock().unwrap() = false;
                                 self.settings_config = None;

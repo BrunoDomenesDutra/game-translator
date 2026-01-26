@@ -111,9 +111,9 @@ pub async fn speak(text: &str, api_key: &str, voice_id: &str) -> Result<()> {
 /// Converte texto em áudio mas NÃO toca (retorna os bytes do áudio)
 ///
 /// Útil se você quiser salvar o áudio em arquivo ou processar depois.
-pub async fn synthesize(text: &str, api_key: &str, voice_id: &str) -> Result<Vec<u8>> {
-    request_tts(text, api_key, voice_id).await
-}
+// pub async fn synthesize(text: &str, api_key: &str, voice_id: &str) -> Result<Vec<u8>> {
+//     request_tts(text, api_key, voice_id).await
+// }
 
 // ============================================================================
 // FUNÇÕES INTERNAS
@@ -201,11 +201,10 @@ fn play_audio(audio_data: &[u8]) -> Result<()> {
 // FUNÇÃO AUXILIAR PARA TOCAR SEM BLOQUEAR
 // ============================================================================
 
-/// Toca o áudio em uma thread separada (não bloqueia)
-pub fn play_audio_async(audio_data: Vec<u8>) {
-    std::thread::spawn(move || {
-        if let Err(e) = play_audio(&audio_data) {
-            error!("❌ Erro ao tocar áudio: {}", e);
-        }
-    });
-}
+// pub fn play_audio_async(audio_data: Vec<u8>) {
+//     std::thread::spawn(move || {
+//         if let Err(e) = play_audio(&audio_data) {
+//             error!("❌ Erro ao tocar áudio: {}", e);
+//         }
+//     });
+// }

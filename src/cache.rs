@@ -127,13 +127,6 @@ impl TranslationCache {
         (total, size_bytes)
     }
 
-    /// Limpa o cache
-    pub fn clear(&self) {
-        let mut cache = self.cache.lock().unwrap();
-        cache.clear();
-        info!("🗑️  Cache limpo!");
-    }
-
     /// Salva o cache em disco
     pub fn save_to_disk(&self) -> Result<()> {
         if !self.persist_to_disk {

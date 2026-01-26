@@ -374,25 +374,6 @@ impl AppConfig {
 
         Ok(())
     }
-
-    /// Atualiza a posição e tamanho do overlay e salva
-    pub fn update_overlay(&mut self, x: u32, y: u32, width: u32, height: u32) -> Result<()> {
-        info!("🔄 Atualizando configuração do overlay...");
-
-        self.overlay.x = x;
-        self.overlay.y = y;
-        self.overlay.width = width;
-        self.overlay.height = height;
-
-        self.save()?;
-
-        info!(
-            "✅ Overlay atualizado: {}x{} na posição ({}, {})",
-            width, height, x, y
-        );
-
-        Ok(())
-    }
 }
 
 /// Estrutura que guarda todas as configurações da aplicação (compatibilidade)
@@ -411,7 +392,6 @@ pub struct Config {
     pub app_config: AppConfig,
 
     // Atalhos para acessar facilmente (retrocompatibilidade)
-    pub use_region_capture: bool,
     pub region_x: u32,
     pub region_y: u32,
     pub region_width: u32,
@@ -469,7 +449,6 @@ impl Config {
             elevenlabs_voice_id,
 
             // Atalhos para retrocompatibilidade
-            use_region_capture: true,
             region_x: app_config.region.x,
             region_y: app_config.region.y,
             region_width: app_config.region.width,
@@ -477,18 +456,5 @@ impl Config {
 
             app_config,
         })
-    }
-
-    /// Atualiza a região e salva
-    pub fn update_region(&mut self, x: u32, y: u32, width: u32, height: u32) -> Result<()> {
-        self.app_config.update_region(x, y, width, height)?;
-
-        // Atualiza atalhos
-        self.region_x = x;
-        self.region_y = y;
-        self.region_width = width;
-        self.region_height = height;
-
-        Ok(())
     }
 }
