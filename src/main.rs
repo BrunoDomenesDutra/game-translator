@@ -93,10 +93,12 @@ struct AppState {
     overlay_hidden: Arc<Mutex<bool>>,
     /// Controla se está no modo de configurações
     settings_mode: Arc<Mutex<bool>>,
+    /// Fator de escala DPI (ex: 1.25 para 125%)
+    dpi_scale: f32,
 }
 
 impl AppState {
-    fn new(config: Config, command_sender: Sender<AppCommand>) -> Self {
+    fn new(config: Config, command_sender: Sender<AppCommand>, dpi_scale: f32) -> Self {
         // Cria cache com persistência em disco
         let translation_cache = cache::TranslationCache::new(true);
 
@@ -118,6 +120,7 @@ impl AppState {
             subtitle_state,
             overlay_hidden: Arc::new(Mutex::new(false)),
             settings_mode: Arc::new(Mutex::new(false)),
+            dpi_scale,
         }
     }
 
@@ -925,16 +928,17 @@ impl eframe::App for OverlayApp {
             let overlay_height = calculated_height.max(50.0); // Mínimo de 50px
 
             // Posiciona o overlay ACIMA da região de legenda
-            let overlay_x = sub_x;
-            let overlay_y = sub_y - overlay_height - 10.0; // 10px de espaço
-            let overlay_width = sub_w;
+            let scale = self.state.dpi_scale;
+            let overlay_x = sub_x / scale;
+            let overlay_y = (sub_y - overlay_height - 10.0) / scale;
+            let overlay_width = sub_w / scale;
 
             // Posiciona e redimensiona a janela
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
                 eframe::egui::pos2(overlay_x, overlay_y),
             ));
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
-                eframe::egui::vec2(overlay_width, overlay_height),
+                eframe::egui::vec2(overlay_width, overlay_height / scale),
             ));
 
             // Renderiza o histórico de legendas
@@ -1077,10 +1081,11 @@ impl eframe::App for OverlayApp {
                     } else {
                         // Adiciona margem
                         let margin = 20.0;
-                        let overlay_x = (min_x - margin).max(0.0) as f32;
-                        let overlay_y = (min_y - margin).max(0.0) as f32;
-                        let overlay_width = (max_x - min_x + margin * 2.0) as f32;
-                        let overlay_height = (max_y - min_y + margin * 2.0 + 50.0) as f32;
+                        let scale = self.state.dpi_scale;
+                        let overlay_x = (min_x - margin).max(0.0) as f32 / scale;
+                        let overlay_y = (min_y - margin).max(0.0) as f32 / scale;
+                        let overlay_width = (max_x - min_x + margin * 2.0) as f32 / scale;
+                        let overlay_height = (max_y - min_y + margin * 2.0 + 50.0) as f32 / scale;
 
                         // Posiciona e redimensiona a janela
                         ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
@@ -1196,10 +1201,11 @@ impl eframe::App for OverlayApp {
                     // ========================================================
                     // MODO REGIÃO: Texto combinado em bloco único
                     // ========================================================
-                    let overlay_x = region.x as f32;
-                    let overlay_y = region.y as f32;
-                    let overlay_width = region.width as f32;
-                    let overlay_height = region.height as f32;
+                    let scale = self.state.dpi_scale;
+                    let overlay_x = region.x as f32 / scale;
+                    let overlay_y = region.y as f32 / scale;
+                    let overlay_width = region.width as f32 / scale;
+                    let overlay_height = region.height as f32 / scale;
 
                     // Posiciona e redimensiona a janela
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
@@ -2010,6 +2016,13 @@ fn process_subtitle_translation(state: &AppState, text: &str) -> anyhow::Result<
 // ============================================================================
 
 fn main() -> Result<()> {
+    // Declara que o programa é DPI-aware (Per-Monitor V2)
+    // Sem isso, o Windows "mente" e diz que o DPI é 96 (100%)
+    // mesmo quando o usuário tem 125%, 150%, etc.
+    unsafe {
+        winapi::um::shellscalingapi::SetProcessDpiAwareness(2); // 2 = Per-Monitor DPI Aware
+    }
+
     env_logger::init();
 
     info!("🎮 ============================================");
@@ -2024,7 +2037,15 @@ fn main() -> Result<()> {
     let (command_sender, command_receiver) = unbounded::<AppCommand>();
 
     // Cria estado compartilhado
-    let state = AppState::new(config, command_sender);
+    let dpi = unsafe { winapi::um::winuser::GetDpiForSystem() };
+    let dpi_scale = dpi as f32 / 96.0;
+    info!(
+        "📐 DPI do sistema: {} (escala: {}%)",
+        dpi,
+        (dpi_scale * 100.0) as u32
+    );
+
+    let state = AppState::new(config, command_sender, dpi_scale);
 
     // Inicia threads
     start_hotkey_thread(state.clone());

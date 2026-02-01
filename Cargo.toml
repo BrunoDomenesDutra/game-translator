@@ -88,7 +88,7 @@ urlencoding = "2.1"
 # === WINDOWS API ===
 # Para manipular estilos de janela (click-through)
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "wingdi", "libloaderapi"] }
+winapi = { version = "0.3", features = ["winuser", "wingdi", "libloaderapi", "hidpi", "shellscalingapi"] }
 
 # === SYSTEM TRAY ===
 # Ícone na bandeja do sistema (perto do relógio)
