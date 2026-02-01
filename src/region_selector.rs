@@ -26,17 +26,11 @@ use winapi::shared::windef::{HWND, POINT, RECT};
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::wingdi::{
     // Funções de desenho GDI (Graphics Device Interface)
-    CreatePen,        // Cria uma "caneta" para desenhar linhas/bordas
     CreateSolidBrush, // Cria um "pincel" para preencher áreas
     DeleteObject,     // Libera objetos GDI da memória
-    // Funções de preenchimento
-    Rectangle,    // Desenha retângulo com borda + preenchimento
-    SelectObject, // Seleciona caneta/pincel para uso
-    SetBkMode,    // Define modo de fundo (transparente/opaco)
-    SetTextColor, // Define cor do texto
-    TextOutW,     // Desenha texto na tela
-    // Estilos de caneta
-    PS_SOLID, // Linha sólida (não tracejada)
+    SetBkMode,        // Define modo de fundo (transparente/opaco)
+    SetTextColor,     // Define cor do texto
+    TextOutW,         // Desenha texto na tela
     // Modos de fundo
     TRANSPARENT, // Fundo transparente para texto
 };
@@ -145,8 +139,11 @@ struct SelectorState {
 // Isso é seguro porque:
 // 1. Só uma instância do seletor roda por vez
 // 2. O Mutex garante acesso exclusivo
-//
+/// Título exibido no topo da tela durante a seleção
 static SELECTOR_RESULT: Mutex<Option<Option<SelectedRegion>>> = Mutex::new(None);
+
+/// Título exibido no topo da tela durante a seleção
+static SELECTOR_TITLE: Mutex<Option<String>> = Mutex::new(None);
 
 // ============================================================================
 // FUNÇÃO PÚBLICA - PONTO DE ENTRADA
@@ -161,11 +158,12 @@ static SELECTOR_RESULT: Mutex<Option<Option<SelectedRegion>>> = Mutex::new(None)
 /// * `Ok(Some(SelectedRegion))` - Região selecionada com sucesso
 /// * `Ok(None)` - Usuário cancelou (ESC)
 /// * `Err(...)` - Erro ao criar janela
-pub fn select_region() -> Result<Option<SelectedRegion>> {
+pub fn select_region(title: Option<&str>) -> Result<Option<SelectedRegion>> {
     info!("🎯 Iniciando seletor de região (overlay transparente)...");
 
     // Limpa resultado anterior
     *SELECTOR_RESULT.lock().unwrap() = None;
+    *SELECTOR_TITLE.lock().unwrap() = title.map(|s| s.to_string());
 
     // Cria e executa a janela do seletor
     // Essa função bloqueia até o usuário selecionar ou cancelar
@@ -273,7 +271,7 @@ unsafe fn create_selector_window() -> Result<()> {
     // TRANSPARENCY_COLOR e ele fica invisível. Só o retângulo de seleção
     // (que usa outras cores) fica visível.
     //
-    SetLayeredWindowAttributes(hwnd, 0, 1, LWA_ALPHA);
+    SetLayeredWindowAttributes(hwnd, 0, 120, LWA_ALPHA);
 
     // ========================================================================
     // PASSO 5: Criar estado e associar à janela
@@ -358,7 +356,7 @@ unsafe extern "system" fn wnd_proc(
         // ====================================================================
         WM_LBUTTONDOWN => {
             // Aumenta opacidade para o retângulo de seleção ficar visível
-            SetLayeredWindowAttributes(hwnd, 0, 180, LWA_ALPHA);
+            // SetLayeredWindowAttributes(hwnd, 0, 180, LWA_ALPHA);
 
             let state = get_state(hwnd);
             if let Some(state) = state {
@@ -462,76 +460,157 @@ unsafe extern "system" fn wnd_proc(
             let mut ps: PAINTSTRUCT = mem::zeroed();
             let hdc = BeginPaint(hwnd, &mut ps);
 
-            // Limpa a janela inteira com preto (fica semi-transparente por causa do LWA_ALPHA)
-            // Isso remove artefatos do retângulo anterior
+            // Pega dimensões da janela (tela inteira)
             let mut client_rect: RECT = mem::zeroed();
             GetClientRect(hwnd, &mut client_rect);
-            let bg_brush = CreateSolidBrush(0x00000000); // Preto
-            FillRect(hdc, &client_rect, bg_brush);
-            DeleteObject(bg_brush as *mut _);
+            let screen_w = client_rect.right;
+            let screen_h = client_rect.bottom;
 
-            // Se estiver arrastando, desenha o retângulo de seleção
+            // Pincel preto para as áreas escurecidas
+            let dark_brush = CreateSolidBrush(0x00000000);
+
+            // Pinta TUDO de preto primeiro (remove qualquer artefato/lixo)
+            FillRect(hdc, &client_rect, dark_brush);
+
+            // Verifica se estamos arrastando para decidir como pintar
             let state = get_state(hwnd);
-            if let Some(state) = state {
-                if state.is_dragging {
-                    if let Some(start) = state.start_point {
-                        let x1 = start.x.min(state.current_point.x);
-                        let y1 = start.y.min(state.current_point.y);
-                        let x2 = start.x.max(state.current_point.x);
-                        let y2 = start.y.max(state.current_point.y);
+            let is_dragging = state.as_ref().map_or(false, |s| s.is_dragging);
+            let sel_coords = if is_dragging {
+                state.as_ref().and_then(|s| {
+                    s.start_point.map(|start| {
+                        let x1 = start.x.min(s.current_point.x);
+                        let y1 = start.y.min(s.current_point.y);
+                        let x2 = start.x.max(s.current_point.x);
+                        let y2 = start.y.max(s.current_point.y);
+                        (x1, y1, x2, y2)
+                    })
+                })
+            } else {
+                None
+            };
 
-                        // --- Preenchimento semi-transparente ---
-                        // GDI não tem transparência real, então usamos
-                        // um azul escuro que se destaca visualmente
-                        let fill_brush = CreateSolidBrush(0x00553300); // BGR: azul escuro
-                        let fill_rect = RECT {
-                            left: x1,
-                            top: y1,
-                            right: x2,
-                            bottom: y2,
-                        };
-                        FillRect(hdc, &fill_rect, fill_brush);
-                        DeleteObject(fill_brush as *mut _);
+            if let Some((x1, y1, x2, y2)) = sel_coords {
+                // ============================================================
+                // TÉCNICA DE MOLDURA: pinta 4 retângulos pretos ao redor
+                // da seleção, deixando o centro "limpo" (sem escurecimento)
+                // ============================================================
+                //
+                //  ┌────────────────────────────┐
+                //  │         TOPO (preto)        │
+                //  ├────┬──────────────┬─────────┤
+                //  │ E  │              │    D    │
+                //  │ S  │   SELEÇÃO    │    I    │
+                //  │ Q  │  (sem preto) │    R    │
+                //  ├────┴──────────────┴─────────┤
+                //  │        BAIXO (preto)        │
+                //  └────────────────────────────┘
 
-                        // --- Borda do retângulo ---
-                        // Caneta azul brilhante, 2 pixels de espessura
-                        let pen = CreatePen(PS_SOLID as i32, 2, 0x00FF6600); // BGR: azul
-                        let old_pen = SelectObject(hdc, pen as *mut _);
+                // Retângulo TOPO: do topo da tela até o topo da seleção
+                let top_rect = RECT {
+                    left: 0,
+                    top: 0,
+                    right: screen_w,
+                    bottom: y1,
+                };
+                FillRect(hdc, &top_rect, dark_brush);
 
-                        // Pincel nulo para não preencher por cima do que já fizemos
-                        let null_brush = wingdi_get_stock_object(5); // HOLLOW_BRUSH = 5
-                        let old_brush = SelectObject(hdc, null_brush);
+                // Retângulo BAIXO: do fundo da seleção até o fundo da tela
+                let bottom_rect = RECT {
+                    left: 0,
+                    top: y2,
+                    right: screen_w,
+                    bottom: screen_h,
+                };
+                FillRect(hdc, &bottom_rect, dark_brush);
 
-                        // Desenha retângulo (só borda, preenchimento já foi feito)
-                        Rectangle(hdc, x1, y1, x2, y2);
+                // Retângulo ESQUERDA: entre topo e fundo, do lado esquerdo até a seleção
+                let left_rect = RECT {
+                    left: 0,
+                    top: y1,
+                    right: x1,
+                    bottom: y2,
+                };
+                FillRect(hdc, &left_rect, dark_brush);
 
-                        // Restaura objetos GDI originais
-                        SelectObject(hdc, old_pen);
-                        SelectObject(hdc, old_brush);
-                        DeleteObject(pen as *mut _);
+                // Retângulo DIREITA: entre topo e fundo, do lado direito da seleção até a borda
+                let right_rect = RECT {
+                    left: x2,
+                    top: y1,
+                    right: screen_w,
+                    bottom: y2,
+                };
+                FillRect(hdc, &right_rect, dark_brush);
 
-                        // --- Texto com dimensões ---
-                        let width = x2 - x1;
-                        let height = y2 - y1;
-                        let info_text = format!("{}x{}", width, height);
-                        let wide_text = wide_string(&info_text);
+                // --- Borda da seleção (4 retângulos finos) ---
+                // Desenhamos a borda como 4 linhas finas com FillRect
+                // em vez de Rectangle(), que pode preencher o interior
+                let border_color = 0x00FF6600; // BGR: azul brilhante
+                let border_brush = CreateSolidBrush(border_color);
+                let b = 2; // espessura da borda em pixels
 
-                        // Posiciona o texto acima do retângulo
-                        let text_x = x1;
-                        let text_y = y1 - 20;
+                // Borda TOPO
+                let bt = RECT {
+                    left: x1,
+                    top: y1,
+                    right: x2,
+                    bottom: y1 + b,
+                };
+                FillRect(hdc, &bt, border_brush);
+                // Borda BAIXO
+                let bb = RECT {
+                    left: x1,
+                    top: y2 - b,
+                    right: x2,
+                    bottom: y2,
+                };
+                FillRect(hdc, &bb, border_brush);
+                // Borda ESQUERDA
+                let bl = RECT {
+                    left: x1,
+                    top: y1,
+                    right: x1 + b,
+                    bottom: y2,
+                };
+                FillRect(hdc, &bl, border_brush);
+                // Borda DIREITA
+                let br_rect = RECT {
+                    left: x2 - b,
+                    top: y1,
+                    right: x2,
+                    bottom: y2,
+                };
+                FillRect(hdc, &br_rect, border_brush);
 
-                        SetBkMode(hdc, TRANSPARENT as i32);
-                        SetTextColor(hdc, 0x00FFFFFF); // Branco
+                DeleteObject(border_brush as *mut _);
 
-                        TextOutW(
-                            hdc,
-                            text_x,
-                            text_y,
-                            wide_text.as_ptr(),
-                            info_text.len() as i32,
-                        );
-                    }
-                }
+                // --- Texto com dimensões ---
+                let width = x2 - x1;
+                let height = y2 - y1;
+                let info_text = format!("{}x{}", width, height);
+                let wide_text = wide_string(&info_text);
+
+                SetBkMode(hdc, TRANSPARENT as i32);
+                SetTextColor(hdc, 0x00FFFFFF);
+
+                TextOutW(hdc, x1, y1 - 20, wide_text.as_ptr(), info_text.len() as i32);
+            } else {
+                // Não está arrastando: tela inteira escurecida uniformemente
+                FillRect(hdc, &client_rect, dark_brush);
+            }
+
+            DeleteObject(dark_brush as *mut _);
+
+            // Desenha título centralizado no topo (se houver)
+            if let Some(ref text) = *SELECTOR_TITLE.lock().unwrap() {
+                let wide_text = wide_string(text);
+                let text_width = text.len() as i32 * 14;
+                let text_x = (screen_w - text_width) / 2;
+                let text_y = 50;
+
+                SetBkMode(hdc, TRANSPARENT as i32);
+                SetTextColor(hdc, 0x00FFFFFF);
+
+                TextOutW(hdc, text_x, text_y, wide_text.as_ptr(), text.len() as i32);
             }
 
             EndPaint(hwnd, &ps);
@@ -576,15 +655,6 @@ unsafe fn get_state<'a>(hwnd: HWND) -> Option<&'a mut SelectorState> {
     } else {
         Some(&mut *ptr)
     }
-}
-
-/// Pega um "stock object" do GDI (objetos pré-definidos do Windows)
-///
-/// Usamos para pegar HOLLOW_BRUSH (pincel vazio), que desenha retângulo
-/// sem preenchimento (só a borda).
-unsafe fn wingdi_get_stock_object(index: i32) -> *mut winapi::ctypes::c_void {
-    // GetStockObject está em wingdi
-    winapi::um::wingdi::GetStockObject(index)
 }
 
 /// Converte uma string Rust (&str) para formato wide string do Windows (UTF-16)

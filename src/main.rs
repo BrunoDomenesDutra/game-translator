@@ -225,7 +225,7 @@ impl eframe::App for OverlayApp {
                     ));
 
                     // Abre o seletor de região
-                    match region_selector::select_region() {
+                    match region_selector::select_region(None) {
                         Ok(Some(selected)) => {
                             info!(
                                 "✅ Região selecionada: {}x{} na posição ({}, {})",
@@ -262,7 +262,7 @@ impl eframe::App for OverlayApp {
                     ));
 
                     // Abre o seletor de região
-                    match region_selector::select_region() {
+                    match region_selector::select_region(Some("SELEÇÃO ÁREA DE LEGENDA")) {
                         Ok(Some(selected)) => {
                             info!(
                                 "✅ Região de legendas selecionada: {}x{} na posição ({}, {})",

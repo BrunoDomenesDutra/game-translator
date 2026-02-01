@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 273,
-    "y": 297,
-    "width": 843,
-    "height": 646
+    "x": 1232,
+    "y": 839,
+    "width": 1203,
+    "height": 360
   },
   "overlay": {
     "x": 265,
@@ -24,7 +24,7 @@
     "font_type": "system",
     "system_font_name": "Arial",
     "file_path": "fonts/Font.ttf",
-    "size": 17.0,
+    "size": 25.0,
     "color": [
       255,
       255,
@@ -83,10 +83,10 @@
   },
   "subtitle": {
     "region": {
-      "x": 696,
-      "y": 971,
-      "width": 1352,
-      "height": 327
+      "x": 1258,
+      "y": 870,
+      "width": 951,
+      "height": 344
     },
     "capture_interval_ms": 50,
     "min_display_secs": 3,
