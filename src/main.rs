@@ -322,8 +322,16 @@ impl eframe::App for OverlayApp {
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
                 eframe::egui::vec2(520.0, 620.0),
             ));
+            let screen_w =
+                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) }
+                    as f32
+                    / self.state.dpi_scale;
+            let screen_h =
+                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CYSCREEN) }
+                    as f32
+                    / self.state.dpi_scale;
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
-                eframe::egui::pos2(100.0, 100.0),
+                eframe::egui::pos2((screen_w - 520.0) / 2.0, (screen_h - 620.0) / 2.0),
             ));
 
             // Remove transparência temporariamente
