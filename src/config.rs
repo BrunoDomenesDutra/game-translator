@@ -170,9 +170,18 @@ pub struct TranslationConfig {
     pub source_language: String,
     /// Idioma de destino (ex: "PT-BR", "PT", "ES")
     pub target_language: String,
-    /// URL do LibreTranslate (se usar LibreTranslate local) ← NOVO!
+    /// URL do LibreTranslate (se usar LibreTranslate local)
     #[serde(default = "default_libretranslate_url")]
     pub libretranslate_url: String,
+    /// API key do DeepL
+    #[serde(default)]
+    pub deepl_api_key: String,
+    /// API key do ElevenLabs (TTS)
+    #[serde(default)]
+    pub elevenlabs_api_key: String,
+    /// Voice ID do ElevenLabs
+    #[serde(default)]
+    pub elevenlabs_voice_id: String,
 }
 
 /// URL padrão do LibreTranslate
@@ -183,10 +192,13 @@ fn default_libretranslate_url() -> String {
 impl Default for TranslationConfig {
     fn default() -> Self {
         TranslationConfig {
-            provider: "libretranslate".to_string(), // Padrão: LibreTranslate local
+            provider: "libretranslate".to_string(),
             source_language: "EN".to_string(),
             target_language: "PT-BR".to_string(),
-            libretranslate_url: "http://localhost:5000".to_string(), // ← NOVO!
+            libretranslate_url: "http://localhost:5000".to_string(),
+            deepl_api_key: String::new(),
+            elevenlabs_api_key: String::new(),
+            elevenlabs_voice_id: String::new(),
         }
     }
 }
@@ -403,21 +415,33 @@ impl Config {
     pub fn load() -> Result<Self> {
         info!("📋 Carregando configurações completas...");
 
-        // Carrega variáveis de ambiente (.env)
+        // Carrega variáveis de ambiente (.env) como fallback
         dotenv::dotenv().ok();
 
-        // API keys do .env
-        let deepl_api_key = env::var("DEEPL_API_KEY").unwrap_or_else(|_| {
-            warn!("⚠️  DEEPL_API_KEY não configurada no arquivo .env");
-            "fake-api-key".to_string()
-        });
-
-        let elevenlabs_api_key = env::var("ELEVENLABS_API_KEY").unwrap_or_else(|_| String::new());
-
-        let elevenlabs_voice_id = env::var("ELEVENLABS_VOICE_ID").unwrap_or_else(|_| String::new());
-
-        // Carrega config.json
+        // Carrega config.json primeiro
         let app_config = AppConfig::load()?;
+
+        // API keys: prioriza config.json, fallback pro .env
+        let deepl_api_key = if !app_config.translation.deepl_api_key.is_empty() {
+            app_config.translation.deepl_api_key.clone()
+        } else {
+            env::var("DEEPL_API_KEY").unwrap_or_else(|_| {
+                warn!("⚠️  DEEPL_API_KEY não configurada");
+                String::new()
+            })
+        };
+
+        let elevenlabs_api_key = if !app_config.translation.elevenlabs_api_key.is_empty() {
+            app_config.translation.elevenlabs_api_key.clone()
+        } else {
+            env::var("ELEVENLABS_API_KEY").unwrap_or_else(|_| String::new())
+        };
+
+        let elevenlabs_voice_id = if !app_config.translation.elevenlabs_voice_id.is_empty() {
+            app_config.translation.elevenlabs_voice_id.clone()
+        } else {
+            env::var("ELEVENLABS_VOICE_ID").unwrap_or_else(|_| String::new())
+        };
 
         info!("✅ Configurações carregadas!");
 

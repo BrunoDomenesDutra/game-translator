@@ -320,7 +320,7 @@ impl eframe::App for OverlayApp {
         if is_settings_mode {
             // Redimensiona a janela para tamanho de configurações
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
-                eframe::egui::vec2(520.0, 620.0),
+                eframe::egui::vec2(520.0, 650.0),
             ));
             let screen_w =
                 unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) }
@@ -331,7 +331,7 @@ impl eframe::App for OverlayApp {
                     as f32
                     / self.state.dpi_scale;
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
-                eframe::egui::pos2((screen_w - 520.0) / 2.0, (screen_h - 620.0) / 2.0),
+                eframe::egui::pos2((screen_w - 520.0) / 2.0, (screen_h - 650.0) / 2.0),
             ));
 
             // Remove transparência temporariamente
@@ -390,6 +390,12 @@ impl eframe::App for OverlayApp {
                         .clicked()
                     {
                         self.settings_tab = 4;
+                    }
+                    if ui
+                        .selectable_label(self.settings_tab == 5, "🌐 Serviços")
+                        .clicked()
+                    {
+                        self.settings_tab = 5;
                     }
                 });
 
@@ -799,6 +805,141 @@ impl eframe::App for OverlayApp {
                                 ui.add_space(5.0);
                                 ui.label("⚠️ Reinicie o programa após alterar os atalhos.");
                             }
+                            5 => {
+                                // === ABA SERVIÇOS ===
+                                ui.heading("🌐 Serviços de Tradução e Voz");
+                                ui.add_space(10.0);
+
+                                // --- Provedor de tradução ---
+                                ui.group(|ui| {
+                                    ui.label("🔤 Provedor de Tradução:");
+                                    ui.add_space(5.0);
+
+                                    let providers = vec!["google", "deepl", "libretranslate"];
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Provedor ativo:");
+                                        eframe::egui::ComboBox::from_id_source(
+                                            "translation_provider",
+                                        )
+                                        .selected_text(&cfg.translation.provider)
+                                        .show_ui(
+                                            ui,
+                                            |ui| {
+                                                for p in &providers {
+                                                    ui.selectable_value(
+                                                        &mut cfg.translation.provider,
+                                                        p.to_string(),
+                                                        *p,
+                                                    );
+                                                }
+                                            },
+                                        );
+                                    });
+
+                                    ui.add_space(5.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Idioma origem:");
+                                        ui.text_edit_singleline(
+                                            &mut cfg.translation.source_language,
+                                        );
+                                    });
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Idioma destino:");
+                                        ui.text_edit_singleline(
+                                            &mut cfg.translation.target_language,
+                                        );
+                                    });
+                                });
+
+                                ui.add_space(10.0);
+
+                                // --- DeepL ---
+                                ui.group(|ui| {
+                                    ui.label("🔵 DeepL:");
+                                    ui.add_space(5.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label("   API Key:");
+                                        ui.add(
+                                            eframe::egui::TextEdit::singleline(
+                                                &mut cfg.translation.deepl_api_key,
+                                            )
+                                            .password(true)
+                                            .desired_width(300.0),
+                                        );
+                                    });
+                                    if cfg.translation.deepl_api_key.is_empty() {
+                                        ui.label("   ⚠️ Necessário para usar DeepL");
+                                    } else {
+                                        ui.label("   ✅ Configurado");
+                                    }
+                                });
+
+                                ui.add_space(10.0);
+
+                                // --- LibreTranslate ---
+                                ui.group(|ui| {
+                                    ui.label("🟢 LibreTranslate:");
+                                    ui.add_space(5.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label("   URL:");
+                                        ui.text_edit_singleline(
+                                            &mut cfg.translation.libretranslate_url,
+                                        );
+                                    });
+                                    ui.label("   ℹ️ Gratuito e offline (requer servidor local)");
+                                });
+
+                                ui.add_space(10.0);
+
+                                // --- Google ---
+                                ui.group(|ui| {
+                                    ui.label("🔴 Google Translate:");
+                                    ui.label("   ℹ️ Sem API key necessária (usa API não oficial)");
+                                });
+
+                                ui.add_space(15.0);
+                                ui.separator();
+                                ui.add_space(10.0);
+
+                                // --- ElevenLabs TTS ---
+                                ui.group(|ui| {
+                                    ui.label("🔊 ElevenLabs (Text-to-Speech):");
+                                    ui.add_space(5.0);
+
+                                    ui.checkbox(&mut cfg.display.tts_enabled, "   TTS ativado");
+
+                                    ui.add_space(5.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   API Key:");
+                                        ui.add(
+                                            eframe::egui::TextEdit::singleline(
+                                                &mut cfg.translation.elevenlabs_api_key,
+                                            )
+                                            .password(true)
+                                            .desired_width(300.0),
+                                        );
+                                    });
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Voice ID:");
+                                        ui.text_edit_singleline(
+                                            &mut cfg.translation.elevenlabs_voice_id,
+                                        );
+                                    });
+
+                                    if cfg.translation.elevenlabs_api_key.is_empty() {
+                                        ui.label(
+                                            "   ⚠️ Configure API Key e Voice ID para usar TTS",
+                                        );
+                                    } else {
+                                        ui.label("   ✅ Configurado");
+                                    }
+                                });
+                            }
+                            _ => {}
                             _ => {}
                         }
                     });
