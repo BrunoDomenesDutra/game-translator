@@ -1119,13 +1119,15 @@ impl eframe::App for OverlayApp {
                                         continue;
                                     }
 
-                                    // Posição relativa ao overlay
-                                    let text_x = (item.screen_x - min_x + margin) as f32;
-                                    let text_y = (item.screen_y - min_y + margin) as f32;
+                                    // Posição relativa ao overlay (ajustada por DPI)
+                                    // Como a janela foi posicionada em coordenadas lógicas
+                                    // (divididas por scale), o conteúdo interno também precisa
+                                    let text_x = (item.screen_x - min_x + margin) as f32 / scale;
+                                    let text_y = (item.screen_y - min_y + margin) as f32 / scale;
                                     let text_pos = eframe::egui::pos2(text_x, text_y);
 
                                     // Largura máxima baseada na largura original do texto
-                                    let max_width = (item.width as f32 * 1.5).max(200.0);
+                                    let max_width = (item.width as f32 / scale * 1.5).max(200.0);
 
                                     // Se show_background, desenha fundo atrás do texto
                                     if show_background {

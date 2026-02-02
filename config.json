@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 1232,
-    "y": 839,
-    "width": 1203,
-    "height": 360
+    "x": 272,
+    "y": 296,
+    "width": 844,
+    "height": 645
   },
   "overlay": {
     "x": 265,
@@ -83,10 +83,10 @@
   },
   "subtitle": {
     "region": {
-      "x": 1258,
-      "y": 870,
-      "width": 951,
-      "height": 344
+      "x": 1149,
+      "y": 488,
+      "width": 1243,
+      "height": 426
     },
     "capture_interval_ms": 50,
     "min_display_secs": 3,
