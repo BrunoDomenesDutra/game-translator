@@ -83,19 +83,19 @@
   },
   "subtitle": {
     "region": {
-      "x": 475,
-      "y": 1078,
-      "width": 1428,
-      "height": 129
+      "x": 720,
+      "y": 1204,
+      "width": 1144,
+      "height": 162
     },
     "capture_interval_ms": 50,
     "min_display_secs": 3,
-    "max_display_secs": 10,
+    "max_display_secs": 3,
     "font": {
       "font_type": "system",
       "system_font_name": "Arial",
       "file_path": "fonts/Font.ttf",
-      "size": 30.0,
+      "size": 40.0,
       "color": [
         255,
         255,
@@ -125,11 +125,11 @@
         ]
       }
     },
-    "max_lines": 2,
+    "max_lines": 1,
     "preprocess": {
       "enabled": true,
       "grayscale": true,
-      "invert": false,
+      "invert": true,
       "contrast": 3.0,
       "threshold": 180,
       "save_debug_image": false

@@ -527,6 +527,20 @@ impl eframe::App for OverlayApp {
                                     }
                                 });
 
+                                ui.horizontal(|ui| {
+                                    ui.label("Timeout (sem texto):");
+                                    let mut timeout = cfg.subtitle.max_display_secs as i32;
+                                    if ui
+                                        .add(
+                                            eframe::egui::Slider::new(&mut timeout, 1..=30)
+                                                .suffix("s"),
+                                        )
+                                        .changed()
+                                    {
+                                        cfg.subtitle.max_display_secs = timeout as u64;
+                                    }
+                                });
+
                                 ui.add_space(15.0);
                                 ui.separator();
                                 ui.label("🔤 Fonte das legendas:");
@@ -867,7 +881,7 @@ impl eframe::App for OverlayApp {
         // ====================================================================
         if subtitle_mode_active && has_subtitles {
             // Pega a região de legenda do config
-            let (sub_x, sub_y, sub_w, _sub_h) = {
+            let (_sub_x, sub_y, _sub_w, _sub_h) = {
                 let config = self.state.config.lock().unwrap();
                 (
                     config.app_config.subtitle.region.x as f32,
@@ -917,7 +931,10 @@ impl eframe::App for OverlayApp {
 
             // Calcula altura dinâmica baseada no conteúdo real
             let font_id_calc = eframe::egui::FontId::proportional(font_size);
-            let max_width_calc = sub_w / self.state.dpi_scale - 20.0;
+            let screen_width_calc =
+                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) }
+                    as f32;
+            let max_width_calc = (screen_width_calc - 100.0) / self.state.dpi_scale - 100.0;
 
             let mut calculated_height = 10.0; // Margem superior
             for entry in &visible_history {
@@ -937,13 +954,16 @@ impl eframe::App for OverlayApp {
             let overlay_height = calculated_height.max(50.0); // Mínimo de 50px
 
             // Posiciona o overlay ACIMA da região de legenda
-            // sub_x, sub_y, sub_w estão em pixels FÍSICOS (do config)
-            // egui usa coordenadas LÓGICAS, então dividimos tudo por scale
+            // Usa largura TOTAL da tela para a caixa de tradução
             let scale = self.state.dpi_scale;
-            let overlay_width = sub_w / scale;
+            let screen_width =
+                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) }
+                    as f32;
+            // Margem lateral (pixels físicos) - ajuste se quiser mais/menos borda
+            let side_margin = 50.0;
+            let overlay_width = (screen_width - side_margin * 2.0) / scale;
+            let overlay_x = side_margin / scale;
             // overlay_height já está em lógico (calculado pelo galley)
-            // então converte sub_y pra lógico e subtrai overlay_height direto
-            let overlay_x = sub_x / scale;
             let overlay_y = sub_y / scale - overlay_height - 10.0;
 
             // Posiciona e redimensiona a janela
@@ -975,7 +995,7 @@ impl eframe::App for OverlayApp {
 
                     // Configura renderização
                     let font_id = eframe::egui::FontId::proportional(font_size);
-                    let max_width = overlay_width - 20.0;
+                    let max_width = overlay_width - 100.0; // Mais margem lateral pro texto
 
                     let text_color = eframe::egui::Color32::from_rgba_unmultiplied(
                         font_color[0],
@@ -989,7 +1009,18 @@ impl eframe::App for OverlayApp {
 
                     for entry in &visible_history {
                         let text = format!("- {}", entry.translated);
-                        let text_pos = eframe::egui::pos2(10.0, y_offset);
+
+                        // Centraliza horizontalmente: calcula largura do texto
+                        // e posiciona no centro do overlay
+                        let galley_measure = ui.painter().layout(
+                            text.clone(),
+                            font_id.clone(),
+                            text_color,
+                            max_width,
+                        );
+                        let text_w = galley_measure.rect.width();
+                        let center_x = (overlay_width - text_w) / 2.0;
+                        let text_pos = eframe::egui::pos2(center_x.max(10.0), y_offset);
 
                         // Calcula o galley para obter a altura real
                         let galley = ui.painter().layout(
@@ -1870,10 +1901,14 @@ fn start_subtitle_thread(state: AppState) {
     thread::spawn(move || {
         info!("📺 Thread de legendas iniciada (aguardando ativação)");
 
-        // Timeout em segundos (sem texto = esconde legendas)
-        let timeout_secs: u64 = 5;
-
         loop {
+            // Timeout em segundos (sem texto = esconde legendas)
+            // Pega do config (max_display_secs)
+            let timeout_secs: u64 = {
+                let config = state.config.lock().unwrap();
+                config.app_config.subtitle.max_display_secs
+            };
+
             // Verifica se o modo legenda está ativo
             let is_active = *state.subtitle_mode_active.lock().unwrap();
 
