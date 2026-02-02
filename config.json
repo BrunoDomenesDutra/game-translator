@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 272,
-    "y": 296,
-    "width": 844,
-    "height": 645
+    "x": 618,
+    "y": 1213,
+    "width": 1340,
+    "height": 153
   },
   "overlay": {
     "x": 265,
@@ -18,13 +18,13 @@
       235
     ],
     "background_image_path": "backgrounds/custom.png",
-    "show_background": true
+    "show_background": false
   },
   "font": {
-    "font_type": "system",
+    "font_type": "file",
     "system_font_name": "Arial",
-    "file_path": "fonts/Font.ttf",
-    "size": 25.0,
+    "file_path": "fonts/Roboto-Regular.ttf",
+    "size": 15.0,
     "color": [
       255,
       255,
@@ -45,7 +45,7 @@
     },
     "outline": {
       "enabled": true,
-      "width": 5,
+      "width": 3,
       "color": [
         0,
         0,
@@ -70,9 +70,9 @@
       "enabled": true,
       "grayscale": true,
       "invert": false,
-      "contrast": 1.5,
-      "threshold": 100,
-      "save_debug_image": true
+      "contrast": 3.0,
+      "threshold": 180,
+      "save_debug_image": false
     }
   },
   "translation": {
@@ -83,10 +83,10 @@
   },
   "subtitle": {
     "region": {
-      "x": 1149,
-      "y": 488,
-      "width": 1243,
-      "height": 426
+      "x": 475,
+      "y": 1078,
+      "width": 1428,
+      "height": 129
     },
     "capture_interval_ms": 50,
     "min_display_secs": 3,
@@ -95,7 +95,7 @@
       "font_type": "system",
       "system_font_name": "Arial",
       "file_path": "fonts/Font.ttf",
-      "size": 45.0,
+      "size": 30.0,
       "color": [
         255,
         255,
@@ -116,7 +116,7 @@
       },
       "outline": {
         "enabled": true,
-        "width": 5,
+        "width": 3,
         "color": [
           0,
           0,
@@ -129,7 +129,7 @@
     "preprocess": {
       "enabled": true,
       "grayscale": true,
-      "invert": true,
+      "invert": false,
       "contrast": 3.0,
       "threshold": 180,
       "save_debug_image": false

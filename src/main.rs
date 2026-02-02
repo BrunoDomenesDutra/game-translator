@@ -917,11 +917,11 @@ impl eframe::App for OverlayApp {
 
             // Calcula altura dinâmica baseada no conteúdo real
             let font_id_calc = eframe::egui::FontId::proportional(font_size);
-            let max_width_calc = sub_w - 20.0;
+            let max_width_calc = sub_w / self.state.dpi_scale - 20.0;
 
-            let mut calculated_height = 15.0; // Margens
+            let mut calculated_height = 10.0; // Margem superior
             for entry in &visible_history {
-                let text = format!("-- {}", entry.translated);
+                let text = format!("- {}", entry.translated);
                 let galley = ctx.fonts(|f| {
                     f.layout(
                         text,
@@ -932,21 +932,26 @@ impl eframe::App for OverlayApp {
                 });
                 calculated_height += galley.rect.height() + 5.0;
             }
+            calculated_height += 10.0; // Margem inferior
 
             let overlay_height = calculated_height.max(50.0); // Mínimo de 50px
 
             // Posiciona o overlay ACIMA da região de legenda
+            // sub_x, sub_y, sub_w estão em pixels FÍSICOS (do config)
+            // egui usa coordenadas LÓGICAS, então dividimos tudo por scale
             let scale = self.state.dpi_scale;
-            let overlay_x = sub_x / scale;
-            let overlay_y = (sub_y - overlay_height - 10.0) / scale;
             let overlay_width = sub_w / scale;
+            // overlay_height já está em lógico (calculado pelo galley)
+            // então converte sub_y pra lógico e subtrai overlay_height direto
+            let overlay_x = sub_x / scale;
+            let overlay_y = sub_y / scale - overlay_height - 10.0;
 
             // Posiciona e redimensiona a janela
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
                 eframe::egui::pos2(overlay_x, overlay_y),
             ));
             ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
-                eframe::egui::vec2(overlay_width, overlay_height / scale),
+                eframe::egui::vec2(overlay_width, overlay_height),
             ));
 
             // Renderiza o histórico de legendas
@@ -983,7 +988,7 @@ impl eframe::App for OverlayApp {
                     let mut y_offset = 5.0;
 
                     for entry in &visible_history {
-                        let text = format!("-- {}", entry.translated);
+                        let text = format!("- {}", entry.translated);
                         let text_pos = eframe::egui::pos2(10.0, y_offset);
 
                         // Calcula o galley para obter a altura real
@@ -2097,6 +2102,52 @@ fn main() -> Result<()> {
             visuals.panel_fill = eframe::egui::Color32::TRANSPARENT;
             visuals.window_fill = eframe::egui::Color32::TRANSPARENT;
             cc.egui_ctx.set_visuals(visuals);
+
+            // Carrega fonte custom se configurada como "file"
+            {
+                let config = state.config.lock().unwrap();
+                let font_path = &config.app_config.font.file_path;
+                let font_type = &config.app_config.font.font_type;
+
+                if font_type == "file" && !font_path.is_empty() {
+                    match std::fs::read(font_path) {
+                        Ok(font_data) => {
+                            let mut fonts = eframe::egui::FontDefinitions::default();
+
+                            // Registra a fonte com nome "custom"
+                            fonts.font_data.insert(
+                                "custom".to_owned(),
+                                eframe::egui::FontData::from_owned(font_data),
+                            );
+
+                            // Coloca como primeira opção para Proportional e Monospace
+                            fonts
+                                .families
+                                .get_mut(&eframe::egui::FontFamily::Proportional)
+                                .unwrap()
+                                .insert(0, "custom".to_owned());
+
+                            fonts
+                                .families
+                                .get_mut(&eframe::egui::FontFamily::Monospace)
+                                .unwrap()
+                                .insert(0, "custom".to_owned());
+
+                            cc.egui_ctx.set_fonts(fonts);
+                            info!("✅ Fonte custom carregada: {}", font_path);
+                        }
+                        Err(e) => {
+                            error!("❌ Erro ao carregar fonte '{}': {}", font_path, e);
+                            info!("   Usando fonte padrão do sistema");
+                        }
+                    }
+                } else {
+                    info!(
+                        "🔤 Usando fonte do sistema: {}",
+                        config.app_config.font.system_font_name
+                    );
+                }
+            }
 
             Ok(Box::new(OverlayApp {
                 state: state.clone(),
