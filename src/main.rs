@@ -940,7 +940,6 @@ impl eframe::App for OverlayApp {
                                 });
                             }
                             _ => {}
-                            _ => {}
                         }
                     });
                 }
@@ -1839,10 +1838,10 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     info!("🌐 [3/4] Traduzindo {} textos...", texts_to_translate.len());
 
     let (api_key, provider, source_lang, target_lang, libre_url) = {
-        // ← ADICIONOU libre_url
+        // Pega do app_config pra ter hot reload
         let config = state.config.lock().unwrap();
         (
-            config.deepl_api_key.clone(),
+            config.app_config.translation.deepl_api_key.clone(),
             config.app_config.translation.provider.clone(),
             config.app_config.translation.source_language.clone(),
             config.app_config.translation.target_language.clone(),
@@ -1982,13 +1981,13 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     // ========================================================================
     let (elevenlabs_key, elevenlabs_voice, tts_enabled) = {
         let config = state.config.lock().unwrap();
+        // Pega as keys do app_config (config.json) pra ter hot reload
+        let key = config.app_config.translation.elevenlabs_api_key.clone();
+        let voice = config.app_config.translation.elevenlabs_voice_id.clone();
         (
-            config.elevenlabs_api_key.clone(),
-            config.elevenlabs_voice_id.clone(),
-            // TTS só ativa se: está habilitado no config E tem API key E tem voice ID
-            config.app_config.display.tts_enabled
-                && !config.elevenlabs_api_key.is_empty()
-                && !config.elevenlabs_voice_id.is_empty(),
+            key.clone(),
+            voice.clone(),
+            config.app_config.display.tts_enabled && !key.is_empty() && !voice.is_empty(),
         )
     };
 
@@ -2150,11 +2149,11 @@ fn start_subtitle_thread(state: AppState) {
 fn process_subtitle_translation(state: &AppState, text: &str) -> anyhow::Result<()> {
     info!("📺 Traduzindo legenda: \"{}\"", text);
 
-    // Pega configurações de tradução
+    // Pega configurações de tradução (do app_config pra ter hot reload)
     let (api_key, provider, source_lang, target_lang, libre_url) = {
         let config = state.config.lock().unwrap();
         (
-            config.deepl_api_key.clone(),
+            config.app_config.translation.deepl_api_key.clone(),
             config.app_config.translation.provider.clone(),
             config.app_config.translation.source_language.clone(),
             config.app_config.translation.target_language.clone(),

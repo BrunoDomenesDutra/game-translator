@@ -11,7 +11,12 @@
     "width": 1365,
     "height": 150,
     "background_type": "solid",
-    "background_color": [0, 0, 0, 235],
+    "background_color": [
+      0,
+      0,
+      0,
+      235
+    ],
     "background_image_path": "backgrounds/custom.png",
     "show_background": false
   },
@@ -20,18 +25,33 @@
     "system_font_name": "Arial",
     "file_path": "fonts/Roboto-Regular.ttf",
     "size": 15.0,
-    "color": [255, 255, 255, 255],
+    "color": [
+      255,
+      255,
+      255,
+      255
+    ],
     "shadow": {
       "enabled": false,
       "offset_x": 5,
       "offset_y": 5,
-      "color": [0, 0, 0, 180],
+      "color": [
+        0,
+        0,
+        0,
+        180
+      ],
       "blur": 0
     },
     "outline": {
       "enabled": true,
       "width": 3,
-      "color": [0, 0, 0, 255]
+      "color": [
+        0,
+        0,
+        0,
+        255
+      ]
     }
   },
   "hotkeys": {
@@ -56,10 +76,13 @@
     }
   },
   "translation": {
-    "provider": "google",
+    "provider": "deepl",
     "source_language": "EN",
     "target_language": "PT-BR",
-    "libretranslate_url": "http://localhost:5000"
+    "libretranslate_url": "http://localhost:5000",
+    "deepl_api_key": "f2942d72-2ca1-4eb1-be3a-0bbd437ab669:fx",
+    "elevenlabs_api_key": "",
+    "elevenlabs_voice_id": ""
   },
   "subtitle": {
     "region": {
@@ -76,18 +99,33 @@
       "system_font_name": "Arial",
       "file_path": "fonts/Font.ttf",
       "size": 40.0,
-      "color": [255, 255, 255, 255],
+      "color": [
+        255,
+        255,
+        255,
+        255
+      ],
       "shadow": {
         "enabled": false,
         "offset_x": 5,
         "offset_y": 5,
-        "color": [0, 0, 0, 180],
+        "color": [
+          0,
+          0,
+          0,
+          180
+        ],
         "blur": 0
       },
       "outline": {
         "enabled": true,
         "width": 3,
-        "color": [0, 0, 0, 255]
+        "color": [
+          0,
+          0,
+          0,
+          255
+        ]
       }
     },
     "max_lines": 1,

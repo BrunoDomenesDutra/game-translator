@@ -392,12 +392,15 @@ impl AppConfig {
 #[derive(Debug, Clone)]
 pub struct Config {
     /// API key do DeepL para tradução
+    #[allow(dead_code)]
     pub deepl_api_key: String,
 
     /// API key do ElevenLabs para TTS
+    #[allow(dead_code)]
     pub elevenlabs_api_key: String,
 
     /// ID da voz no ElevenLabs
+    #[allow(dead_code)]
     pub elevenlabs_voice_id: String,
 
     /// Configurações da aplicação
