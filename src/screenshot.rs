@@ -227,8 +227,33 @@ pub fn preprocess_image(
     contrast: f32,
     threshold: u8,
     save_debug: bool,
+    upscale: f32, // ← NOVO parâmetro
 ) -> image::DynamicImage {
     let mut processed = image.clone();
+
+    // 0. Upscale — redimensiona a imagem ANTES de qualquer processamento
+    // O Windows OCR funciona MUITO melhor com texto grande (>30px).
+    // Se o texto no jogo é pequeno, upscale 2x ou 3x melhora bastante.
+    // Fazemos isso PRIMEIRO porque os outros filtros (threshold, contraste)
+    // funcionam melhor em imagens maiores com mais detalhe nos pixels.
+    if upscale > 1.0 {
+        let (w, h) = (processed.width(), processed.height());
+        let new_w = (w as f32 * upscale) as u32;
+        let new_h = (h as f32 * upscale) as u32;
+
+        // image::imageops::FilterType::Lanczos3 é o melhor filtro para upscale
+        // Ele preserva bordas nítidas (perfeito para texto)
+        // Outros filtros disponíveis:
+        //   Nearest  = mais rápido, mas pixelado (ruim para OCR)
+        //   Triangle = ok, mas borra um pouco
+        //   Lanczos3 = mais lento, mas bordas nítidas (melhor para texto!)
+        processed = processed.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3);
+
+        info!(
+            "   🔍 Upscale: {}x{} → {}x{} (fator {:.1}x)",
+            w, h, new_w, new_h, upscale
+        );
+    }
 
     // 1. Converte para escala de cinza
     if grayscale {

@@ -11,12 +11,7 @@
     "width": 1365,
     "height": 150,
     "background_type": "solid",
-    "background_color": [
-      0,
-      0,
-      0,
-      235
-    ],
+    "background_color": [0, 0, 0, 235],
     "background_image_path": "backgrounds/custom.png",
     "show_background": false
   },
@@ -25,33 +20,18 @@
     "system_font_name": "Arial",
     "file_path": "fonts/Roboto-Regular.ttf",
     "size": 20.0,
-    "color": [
-      255,
-      255,
-      255,
-      255
-    ],
+    "color": [255, 255, 255, 255],
     "shadow": {
       "enabled": false,
       "offset_x": 5,
       "offset_y": 5,
-      "color": [
-        0,
-        0,
-        0,
-        180
-      ],
+      "color": [0, 0, 0, 180],
       "blur": 0
     },
     "outline": {
       "enabled": true,
       "width": 3,
-      "color": [
-        0,
-        0,
-        0,
-        255
-      ]
+      "color": [0, 0, 0, 255]
     }
   },
   "hotkeys": {
@@ -72,7 +52,8 @@
       "invert": true,
       "contrast": 3.0,
       "threshold": 100,
-      "save_debug_image": true
+      "save_debug_image": true,
+      "upscale": 2.0
     }
   },
   "translation": {
@@ -99,33 +80,18 @@
       "system_font_name": "Arial",
       "file_path": "fonts/Roboto-Regular.ttf",
       "size": 35.0,
-      "color": [
-        255,
-        255,
-        255,
-        255
-      ],
+      "color": [255, 255, 255, 255],
       "shadow": {
         "enabled": false,
         "offset_x": 5,
         "offset_y": 5,
-        "color": [
-          0,
-          0,
-          0,
-          180
-        ],
+        "color": [0, 0, 0, 180],
         "blur": 0
       },
       "outline": {
         "enabled": true,
         "width": 3,
-        "color": [
-          0,
-          0,
-          0,
-          255
-        ]
+        "color": [0, 0, 0, 255]
       }
     },
     "max_lines": 2,
@@ -135,7 +101,8 @@
       "invert": true,
       "contrast": 2.0,
       "threshold": 180,
-      "save_debug_image": true
+      "save_debug_image": true,
+      "upscale": 2.0
     }
   }
 }

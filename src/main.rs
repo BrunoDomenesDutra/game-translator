@@ -1787,6 +1787,7 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
                 preprocess_config.contrast,
                 preprocess_config.threshold,
                 preprocess_config.save_debug_image,
+                preprocess_config.upscale, // ← NOVO: fator de upscale
             )
         } else {
             image
@@ -2106,6 +2107,7 @@ fn start_subtitle_thread(state: AppState) {
                                 preprocess_config.contrast,
                                 preprocess_config.threshold,
                                 preprocess_config.save_debug_image,
+                                preprocess_config.upscale, // ← NOVO: fator de upscale
                             )
                         } else {
                             image

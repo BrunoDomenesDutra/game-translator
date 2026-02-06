@@ -219,6 +219,16 @@ pub struct PreprocessConfig {
     pub threshold: u8,
     /// Salva imagem processada para debug
     pub save_debug_image: bool,
+    /// Fator de upscale antes do OCR (1.0 = sem escala, 2.0 = dobro, 3.0 = triplo)
+    /// Texto pequeno (<20px) se beneficia muito de 2.0 ou 3.0
+    /// Valores acima de 3.0 não são recomendados (mais lento sem ganho)
+    #[serde(default = "default_upscale")]
+    pub upscale: f32,
+}
+
+/// Valor padrão do upscale (1.0 = desativado, sem escala)
+fn default_upscale() -> f32 {
+    1.0
 }
 
 impl Default for PreprocessConfig {
@@ -230,6 +240,7 @@ impl Default for PreprocessConfig {
             contrast: 1.5,
             threshold: 0,
             save_debug_image: false,
+            upscale: 1.0,
         }
     }
 }
