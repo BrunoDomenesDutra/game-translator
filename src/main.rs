@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 // game-translator/src/main.rs
 
@@ -192,13 +192,28 @@ impl eframe::App for OverlayApp {
         // ====================================================================
         #[cfg(windows)]
         {
-            use std::sync::Once;
-            static INIT: Once = Once::new();
-            INIT.call_once(|| {
-                // Pequeno delay para garantir que a janela foi criada
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                make_window_click_through();
-            });
+            // Verifica se está no modo configurações
+            let is_settings = *self.state.settings_mode.lock().unwrap();
+
+            if is_settings {
+                // Modo configurações: remove click-through pra poder interagir
+                remove_window_click_through();
+            } else {
+                // Modo normal: reaplica click-through periodicamente (a cada ~500ms)
+                use std::sync::atomic::{AtomicU64, Ordering};
+                static LAST_CLICK_THROUGH: AtomicU64 = AtomicU64::new(0);
+
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+
+                let last = LAST_CLICK_THROUGH.load(Ordering::Relaxed);
+                if now - last > 500 {
+                    make_window_click_through();
+                    LAST_CLICK_THROUGH.store(now, Ordering::Relaxed);
+                }
+            }
         }
         // ====================================================================
         // VERIFICA SE O OVERLAY DEVE FICAR ESCONDIDO (durante captura)
@@ -1914,7 +1929,7 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     );
 
     // Monta lista com posições
-    // Calcula offset baseado no modo (região ou tela cheia)
+    // Calcula offset baseado no modo (região ou tela cheia)79
     let (offset_x, offset_y) = match action {
         hotkey::HotkeyAction::TranslateRegion => {
             let config = state.config.lock().unwrap();
@@ -2331,6 +2346,7 @@ fn main() -> Result<()> {
                 settings_config: None,
                 settings_tab: 0,
                 settings_status: None,
+                // last_window_size: (0.0, 0.0),
             }) as Box<dyn eframe::App>)
         }),
     );
@@ -2364,6 +2380,24 @@ fn make_window_click_through() {
             info!("✅ Janela configurada como click-through!");
         } else {
             warn!("⚠️  Não foi possível encontrar a janela para click-through");
+        }
+    }
+}
+
+fn remove_window_click_through() {
+    use winapi::um::winuser::{
+        FindWindowW, GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+    };
+
+    unsafe {
+        let title: Vec<u16> = "Game Translator\0".encode_utf16().collect();
+        let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+
+        if !hwnd.is_null() {
+            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+            // Remove WS_EX_TRANSPARENT mas mantém WS_EX_LAYERED (pra transparência visual)
+            let new_style = (ex_style | WS_EX_LAYERED as i32) & !(WS_EX_TRANSPARENT as i32);
+            SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
         }
     }
 }

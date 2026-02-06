@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 618,
-    "y": 1213,
-    "width": 1340,
-    "height": 153
+    "x": 271,
+    "y": 289,
+    "width": 884,
+    "height": 664
   },
   "overlay": {
     "x": 265,
@@ -24,7 +24,7 @@
     "font_type": "file",
     "system_font_name": "Arial",
     "file_path": "fonts/Roboto-Regular.ttf",
-    "size": 15.0,
+    "size": 20.0,
     "color": [
       255,
       255,
@@ -69,36 +69,36 @@
     "preprocess": {
       "enabled": true,
       "grayscale": true,
-      "invert": false,
+      "invert": true,
       "contrast": 3.0,
-      "threshold": 180,
-      "save_debug_image": false
+      "threshold": 100,
+      "save_debug_image": true
     }
   },
   "translation": {
-    "provider": "deepl",
+    "provider": "google",
     "source_language": "EN",
     "target_language": "PT-BR",
     "libretranslate_url": "http://localhost:5000",
-    "deepl_api_key": "f2942d72-2ca1-4eb1-be3a-0bbd437ab669:fx",
+    "deepl_api_key": "",
     "elevenlabs_api_key": "",
     "elevenlabs_voice_id": ""
   },
   "subtitle": {
     "region": {
-      "x": 720,
-      "y": 1204,
-      "width": 1144,
-      "height": 162
+      "x": 603,
+      "y": 1197,
+      "width": 1459,
+      "height": 173
     },
     "capture_interval_ms": 50,
     "min_display_secs": 3,
-    "max_display_secs": 3,
+    "max_display_secs": 2,
     "font": {
-      "font_type": "system",
+      "font_type": "file",
       "system_font_name": "Arial",
-      "file_path": "fonts/Font.ttf",
-      "size": 40.0,
+      "file_path": "fonts/Roboto-Regular.ttf",
+      "size": 35.0,
       "color": [
         255,
         255,
@@ -128,14 +128,14 @@
         ]
       }
     },
-    "max_lines": 1,
+    "max_lines": 2,
     "preprocess": {
       "enabled": true,
       "grayscale": true,
       "invert": true,
-      "contrast": 3.0,
+      "contrast": 2.0,
       "threshold": 180,
-      "save_debug_image": false
+      "save_debug_image": true
     }
   }
 }
