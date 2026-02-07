@@ -511,6 +511,45 @@ impl eframe::App for OverlayApp {
                                             }
                                         });
 
+                                        ui.horizontal(|ui| {
+                                            ui.label("Blur:");
+                                            ui.add(
+                                                eframe::egui::Slider::new(
+                                                    &mut cfg.display.preprocess.blur,
+                                                    0.0..=5.0,
+                                                )
+                                                .suffix("σ"),
+                                            );
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Dilatação:");
+                                            let mut d = cfg.display.preprocess.dilate as i32;
+                                            if ui
+                                                .add(
+                                                    eframe::egui::Slider::new(&mut d, 0..=5)
+                                                        .suffix("px"),
+                                                )
+                                                .changed()
+                                            {
+                                                cfg.display.preprocess.dilate = d as u8;
+                                            }
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Erosão:");
+                                            let mut e = cfg.display.preprocess.erode as i32;
+                                            if ui
+                                                .add(
+                                                    eframe::egui::Slider::new(&mut e, 0..=5)
+                                                        .suffix("px"),
+                                                )
+                                                .changed()
+                                            {
+                                                cfg.display.preprocess.erode = e as u8;
+                                            }
+                                        });
+
                                         ui.checkbox(
                                             &mut cfg.display.preprocess.save_debug_image,
                                             "Salvar imagem debug",
@@ -640,6 +679,45 @@ impl eframe::App for OverlayApp {
                                                 .changed()
                                             {
                                                 cfg.subtitle.preprocess.threshold = threshold as u8;
+                                            }
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Blur:");
+                                            ui.add(
+                                                eframe::egui::Slider::new(
+                                                    &mut cfg.subtitle.preprocess.blur,
+                                                    0.0..=5.0,
+                                                )
+                                                .suffix("σ"),
+                                            );
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Dilatação:");
+                                            let mut d = cfg.subtitle.preprocess.dilate as i32;
+                                            if ui
+                                                .add(
+                                                    eframe::egui::Slider::new(&mut d, 0..=5)
+                                                        .suffix("px"),
+                                                )
+                                                .changed()
+                                            {
+                                                cfg.subtitle.preprocess.dilate = d as u8;
+                                            }
+                                        });
+
+                                        ui.horizontal(|ui| {
+                                            ui.label("Erosão:");
+                                            let mut e = cfg.subtitle.preprocess.erode as i32;
+                                            if ui
+                                                .add(
+                                                    eframe::egui::Slider::new(&mut e, 0..=5)
+                                                        .suffix("px"),
+                                                )
+                                                .changed()
+                                            {
+                                                cfg.subtitle.preprocess.erode = e as u8;
                                             }
                                         });
 
@@ -1797,6 +1875,8 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
                 preprocess_config.save_debug_image,
                 effective_upscale,
                 preprocess_config.blur, // Blur gaussiano // Usa effective_upscale (1.0 para tela cheia)
+                preprocess_config.dilate,
+                preprocess_config.erode,
             )
         } else {
             image
@@ -2147,6 +2227,8 @@ fn start_subtitle_thread(state: AppState) {
                                 preprocess_config.save_debug_image,
                                 preprocess_config.upscale, // Legendas sempre usam upscale do config
                                 preprocess_config.blur,    // Blur gaussiano
+                                preprocess_config.dilate,
+                                preprocess_config.erode,
                             )
                         } else {
                             image

@@ -230,6 +230,16 @@ pub struct PreprocessConfig {
     /// Valores altos (3+) podem borrar texto fino demais
     #[serde(default)]
     pub blur: f32,
+    /// Dilatação: "engorda" os caracteres (pixels brancos se expandem)
+    /// Útil quando as letras ficam finas demais após threshold.
+    /// 0 = desativado, 1-3 = leve a forte
+    #[serde(default)]
+    pub dilate: u8,
+    /// Erosão: "afina" os caracteres (remove pixels das bordas)
+    /// Útil para remover ruído pequeno ao redor do texto.
+    /// 0 = desativado, 1-3 = leve a forte
+    #[serde(default)]
+    pub erode: u8,
 }
 
 /// Valor padrão do upscale (1.0 = desativado, sem escala)
@@ -248,6 +258,8 @@ impl Default for PreprocessConfig {
             save_debug_image: false,
             upscale: 1.0,
             blur: 0.0, // 0.0 = desativado
+            dilate: 0,
+            erode: 0,
         }
     }
 }

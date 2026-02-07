@@ -229,6 +229,8 @@ pub fn preprocess_image(
     save_debug: bool,
     upscale: f32,
     blur: f32,
+    dilate: u8,
+    erode: u8,
 ) -> image::DynamicImage {
     let mut processed = image.clone();
 
@@ -296,6 +298,77 @@ pub fn preprocess_image(
         }
 
         processed = image::DynamicImage::ImageRgb8(binary);
+    }
+
+    // 3.5. Erosão — remove pixels das bordas dos caracteres
+    // Aplicada ANTES da dilatação para fazer "opening" (erosão + dilatação)
+    // que remove ruído pequeno sem afetar o texto principal.
+    // Funciona como um filtro de mínimo: cada pixel vira o valor mínimo
+    // dos seus vizinhos dentro do raio.
+    if erode > 0 {
+        let rgb = processed.to_rgb8();
+        let (width, height) = rgb.dimensions();
+        let mut eroded = rgb.clone();
+        let radius = erode as i32;
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut min_val: u8 = 255;
+
+                // Percorre vizinhos dentro do raio
+                for dy in -radius..=radius {
+                    for dx in -radius..=radius {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+
+                        if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                            let pixel = rgb.get_pixel(nx as u32, ny as u32);
+                            min_val = min_val.min(pixel[0]);
+                        }
+                    }
+                }
+
+                eroded.put_pixel(x, y, image::Rgb([min_val, min_val, min_val]));
+            }
+        }
+
+        processed = image::DynamicImage::ImageRgb8(eroded);
+        info!("   🔽 Erosão aplicada: raio={}", erode);
+    }
+
+    // 3.6. Dilatação — expande pixels dos caracteres (engorda letras)
+    // Funciona como um filtro de máximo: cada pixel vira o valor máximo
+    // dos seus vizinhos dentro do raio. Isso "fecha" buracos e engorda
+    // letras finas que o threshold pode ter afinado demais.
+    if dilate > 0 {
+        let rgb = processed.to_rgb8();
+        let (width, height) = rgb.dimensions();
+        let mut dilated = rgb.clone();
+        let radius = dilate as i32;
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut max_val: u8 = 0;
+
+                // Percorre vizinhos dentro do raio
+                for dy in -radius..=radius {
+                    for dx in -radius..=radius {
+                        let nx = x as i32 + dx;
+                        let ny = y as i32 + dy;
+
+                        if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
+                            let pixel = rgb.get_pixel(nx as u32, ny as u32);
+                            max_val = max_val.max(pixel[0]);
+                        }
+                    }
+                }
+
+                dilated.put_pixel(x, y, image::Rgb([max_val, max_val, max_val]));
+            }
+        }
+
+        processed = image::DynamicImage::ImageRgb8(dilated);
+        info!("   🔼 Dilatação aplicada: raio={}", dilate);
     }
 
     // 4. Inverte cores

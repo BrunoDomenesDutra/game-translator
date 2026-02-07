@@ -54,7 +54,9 @@
       "threshold": 180,
       "save_debug_image": true,
       "upscale": 2.0,
-      "blur": 1.0
+      "blur": 1.0,
+      "dilate": 0,
+      "erode": 0
     }
   },
   "translation": {
@@ -104,7 +106,9 @@
       "threshold": 180,
       "save_debug_image": true,
       "upscale": 2.0,
-      "blur": 1.0
+      "blur": 1.0,
+      "dilate": 0,
+      "erode": 0
     }
   }
 }
