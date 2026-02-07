@@ -227,7 +227,8 @@ pub fn preprocess_image(
     contrast: f32,
     threshold: u8,
     save_debug: bool,
-    upscale: f32, // ← NOVO parâmetro
+    upscale: f32,
+    blur: f32,
 ) -> image::DynamicImage {
     let mut processed = image.clone();
 
@@ -253,6 +254,16 @@ pub fn preprocess_image(
             "   🔍 Upscale: {}x{} → {}x{} (fator {:.1}x)",
             w, h, new_w, new_h, upscale
         );
+    }
+
+    // 0.5. Blur gaussiano — suaviza sombras e artefatos visuais
+    // Aplicado ANTES do grayscale/threshold para que a suavização
+    // elimine bordas duras de sombras e efeitos do jogo.
+    // O threshold depois "limpa" o resultado borrado.
+    if blur > 0.0 {
+        let sigma = blur; // sigma controla a intensidade do blur
+        processed = processed.blur(sigma);
+        info!("   🌫️ Blur aplicado: sigma={:.1}", sigma);
     }
 
     // 1. Converte para escala de cinza

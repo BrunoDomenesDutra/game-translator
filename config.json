@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 271,
-    "y": 289,
-    "width": 884,
-    "height": 664
+    "x": 739,
+    "y": 1181,
+    "width": 1137,
+    "height": 237
   },
   "overlay": {
     "x": 265,
@@ -49,11 +49,12 @@
     "preprocess": {
       "enabled": true,
       "grayscale": true,
-      "invert": true,
-      "contrast": 3.0,
-      "threshold": 100,
+      "invert": false,
+      "contrast": 2.0,
+      "threshold": 180,
       "save_debug_image": true,
-      "upscale": 2.0
+      "upscale": 2.0,
+      "blur": 1.0
     }
   },
   "translation": {
@@ -98,11 +99,12 @@
     "preprocess": {
       "enabled": true,
       "grayscale": true,
-      "invert": true,
+      "invert": false,
       "contrast": 2.0,
       "threshold": 180,
       "save_debug_image": true,
-      "upscale": 2.0
+      "upscale": 2.0,
+      "blur": 1.0
     }
   }
 }

@@ -224,6 +224,12 @@ pub struct PreprocessConfig {
     /// Valores acima de 3.0 não são recomendados (mais lento sem ganho)
     #[serde(default = "default_upscale")]
     pub upscale: f32,
+    /// Blur gaussiano antes do threshold (0 = desativado, 1-5 = leve a forte)
+    /// Suaviza sombras e artefatos visuais do texto antes da binarização.
+    /// Valores recomendados: 0 (desativado) ou 1-2 (leve)
+    /// Valores altos (3+) podem borrar texto fino demais
+    #[serde(default)]
+    pub blur: f32,
 }
 
 /// Valor padrão do upscale (1.0 = desativado, sem escala)
@@ -241,6 +247,7 @@ impl Default for PreprocessConfig {
             threshold: 0,
             save_debug_image: false,
             upscale: 1.0,
+            blur: 0.0, // 0.0 = desativado
         }
     }
 }

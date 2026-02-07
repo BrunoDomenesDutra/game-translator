@@ -1746,8 +1746,16 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
         config.app_config.display.preprocess.clone()
     };
 
+    // No modo tela cheia, força upscale 1.0 (desativado)
+    // porque a imagem já é grande e upscale deixaria muito lento
+    let effective_upscale = if action == hotkey::HotkeyAction::TranslateFullScreen {
+        1.0
+    } else {
+        preprocess_config.upscale
+    };
+
     // OCR result vai ser preenchido de acordo com o modo
-    let ocr_result = if use_memory {
+    let mut ocr_result = if use_memory {
         // ====================================================================
         // MODO MEMÓRIA (RÁPIDO) - Não salva arquivo em disco
         // ====================================================================
@@ -1787,7 +1795,8 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
                 preprocess_config.contrast,
                 preprocess_config.threshold,
                 preprocess_config.save_debug_image,
-                preprocess_config.upscale, // ← NOVO: fator de upscale
+                effective_upscale,
+                preprocess_config.blur, // Blur gaussiano // Usa effective_upscale (1.0 para tela cheia)
             )
         } else {
             image
@@ -1842,6 +1851,34 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     }
 
     info!("   📍 {} linhas detectadas", ocr_result.lines.len());
+
+    // Se upscale foi aplicado, as coordenadas do OCR estão multiplicadas
+    // pelo fator de escala. Precisamos corrigir dividindo de volta.
+    // Exemplo: upscale 2.0 → OCR detecta texto em (400, 600)
+    //          mas na tela real o texto está em (200, 300)
+    // Upscale só é aplicado no modo região/legendas.
+    // No modo tela cheia a imagem já é grande demais — upscale deixaria muito lento.
+    let upscale_factor = if preprocess_config.enabled
+        && preprocess_config.upscale > 1.0
+        && action != hotkey::HotkeyAction::TranslateFullScreen
+    {
+        preprocess_config.upscale as f64
+    } else {
+        1.0
+    };
+
+    if upscale_factor > 1.0 {
+        info!(
+            "   📐 Corrigindo coordenadas (÷{:.1}x upscale)",
+            upscale_factor
+        );
+        for line in &mut ocr_result.lines {
+            line.x /= upscale_factor;
+            line.y /= upscale_factor;
+            line.width /= upscale_factor;
+            line.height /= upscale_factor;
+        }
+    }
 
     // Extrai textos para traduzir e limpa erros de OCR
     let texts_to_translate: Vec<String> = ocr_result
@@ -2098,8 +2135,9 @@ fn start_subtitle_thread(state: AppState) {
                 match screenshot::capture_region_to_memory(region_x, region_y, region_w, region_h) {
                     Ok(image) => {
                         // Aplica pré-processamento se habilitado
+                        // No modo tela cheia, força upscale 1.0 (desativado)
+                        // porque a imagem já é grande e upscale deixaria muito lento
                         let processed_image = if preprocess_config.enabled {
-                            info!("   🔧 Aplicando pré-processamento...");
                             screenshot::preprocess_image(
                                 &image,
                                 preprocess_config.grayscale,
@@ -2107,7 +2145,8 @@ fn start_subtitle_thread(state: AppState) {
                                 preprocess_config.contrast,
                                 preprocess_config.threshold,
                                 preprocess_config.save_debug_image,
-                                preprocess_config.upscale, // ← NOVO: fator de upscale
+                                preprocess_config.upscale, // Legendas sempre usam upscale do config
+                                preprocess_config.blur,    // Blur gaussiano
                             )
                         } else {
                             image
