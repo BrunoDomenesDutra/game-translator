@@ -51,12 +51,13 @@
       "grayscale": true,
       "invert": false,
       "contrast": 2.0,
-      "threshold": 180,
+      "threshold": 160,
       "save_debug_image": true,
       "upscale": 2.0,
       "blur": 1.0,
-      "dilate": 0,
-      "erode": 0
+      "dilate": 3,
+      "erode": 0,
+      "edge_detection": 50
     }
   },
   "translation": {
@@ -75,7 +76,7 @@
       "width": 1459,
       "height": 173
     },
-    "capture_interval_ms": 50,
+    "capture_interval_ms": 100,
     "min_display_secs": 3,
     "max_display_secs": 2,
     "font": {
@@ -107,8 +108,9 @@
       "save_debug_image": true,
       "upscale": 2.0,
       "blur": 1.0,
-      "dilate": 0,
-      "erode": 0
+      "dilate": 1,
+      "erode": 0,
+      "edge_detection": 0
     }
   }
 }

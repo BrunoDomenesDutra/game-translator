@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+// #![windows_subsystem = "windows"]
 
 // game-translator/src/main.rs
 
@@ -550,6 +550,16 @@ impl eframe::App for OverlayApp {
                                             }
                                         });
 
+                                        ui.separator();
+                                        ui.horizontal(|ui| {
+                                            ui.label("Edge Detection:");
+                                            let mut ed = cfg.display.preprocess.edge_detection as i32;
+                                            if ui.add(eframe::egui::Slider::new(&mut ed, 0..=150).suffix("")).changed() {
+                                                cfg.display.preprocess.edge_detection = ed as u8;
+                                            }
+                                        });
+                                        ui.label("   0=desativado, 30-80=recomendado (substitui threshold)");
+
                                         ui.checkbox(
                                             &mut cfg.display.preprocess.save_debug_image,
                                             "Salvar imagem debug",
@@ -720,6 +730,16 @@ impl eframe::App for OverlayApp {
                                                 cfg.subtitle.preprocess.erode = e as u8;
                                             }
                                         });
+
+                                        ui.separator();
+                                        ui.horizontal(|ui| {
+                                            ui.label("Edge Detection:");
+                                            let mut ed = cfg.subtitle.preprocess.edge_detection as i32;
+                                            if ui.add(eframe::egui::Slider::new(&mut ed, 0..=150).suffix("")).changed() {
+                                                cfg.subtitle.preprocess.edge_detection = ed as u8;
+                                            }
+                                        });
+                                        ui.label("   0=off, 30-80=recomendado");
 
                                         ui.checkbox(
                                             &mut cfg.subtitle.preprocess.save_debug_image,
@@ -1877,6 +1897,7 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
                 preprocess_config.blur, // Blur gaussiano // Usa effective_upscale (1.0 para tela cheia)
                 preprocess_config.dilate,
                 preprocess_config.erode,
+                preprocess_config.edge_detection,
             )
         } else {
             image
@@ -2229,6 +2250,7 @@ fn start_subtitle_thread(state: AppState) {
                                 preprocess_config.blur,    // Blur gaussiano
                                 preprocess_config.dilate,
                                 preprocess_config.erode,
+                                preprocess_config.edge_detection,
                             )
                         } else {
                             image

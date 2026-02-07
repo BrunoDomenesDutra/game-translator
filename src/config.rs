@@ -240,6 +240,12 @@ pub struct PreprocessConfig {
     /// 0 = desativado, 1-3 = leve a forte
     #[serde(default)]
     pub erode: u8,
+    /// Modo de detecção de bordas (edge detection)
+    /// Detecta contornos de texto em vez de usar threshold simples.
+    /// Muito melhor para texto branco com outline em fundo claro.
+    /// 0 = desativado, 1-255 = threshold do gradiente (recomendado: 30-80)
+    #[serde(default)]
+    pub edge_detection: u8,
 }
 
 /// Valor padrão do upscale (1.0 = desativado, sem escala)
@@ -260,6 +266,7 @@ impl Default for PreprocessConfig {
             blur: 0.0, // 0.0 = desativado
             dilate: 0,
             erode: 0,
+            edge_detection: 0,
         }
     }
 }

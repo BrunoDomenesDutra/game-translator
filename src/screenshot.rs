@@ -231,6 +231,7 @@ pub fn preprocess_image(
     blur: f32,
     dilate: u8,
     erode: u8,
+    edge_detection: u8,
 ) -> image::DynamicImage {
     let mut processed = image.clone();
 
@@ -280,8 +281,57 @@ pub fn preprocess_image(
         processed = processed.adjust_contrast(contrast);
     }
 
+    // 2.5. Edge Detection (detecção de bordas) — alternativa ao threshold
+    // Usa filtro Sobel para encontrar transições claro↔escuro.
+    // Perfeito para texto com outline: o contorno escuro ao redor das
+    // letras brancas cria gradientes fortes que o Sobel detecta.
+    // Se ativado, SUBSTITUI o threshold normal.
+    if edge_detection > 0 {
+        let gray = processed.to_luma8();
+        let (width, height) = gray.dimensions();
+        let mut edges = image::GrayImage::new(width, height);
+
+        // Filtro Sobel: calcula gradiente horizontal (Gx) e vertical (Gy)
+        // para cada pixel. Pixels com gradiente alto = borda/contorno.
+        for y in 1..(height - 1) {
+            for x in 1..(width - 1) {
+                // Pega os 9 pixels ao redor (janela 3x3)
+                let p = |dx: i32, dy: i32| -> f32 {
+                    gray.get_pixel((x as i32 + dx) as u32, (y as i32 + dy) as u32)[0] as f32
+                };
+
+                // Kernel Sobel horizontal (detecta bordas verticais)
+                let gx =
+                    -p(-1, -1) - 2.0 * p(-1, 0) - p(-1, 1) + p(1, -1) + 2.0 * p(1, 0) + p(1, 1);
+
+                // Kernel Sobel vertical (detecta bordas horizontais)
+                let gy =
+                    -p(-1, -1) - 2.0 * p(0, -1) - p(1, -1) + p(-1, 1) + 2.0 * p(0, 1) + p(1, 1);
+
+                // Magnitude do gradiente (quanto maior, mais forte a borda)
+                let magnitude = (gx * gx + gy * gy).sqrt().min(255.0) as u8;
+
+                // Aplica threshold no gradiente: acima = borda (branco)
+                let value = if magnitude > edge_detection { 255 } else { 0 };
+                edges.put_pixel(x, y, image::Luma([value]));
+            }
+        }
+
+        processed =
+            image::DynamicImage::ImageRgb8(image::DynamicImage::ImageLuma8(edges).to_rgb8());
+
+        info!(
+            "   🔎 Edge detection aplicado: threshold={}",
+            edge_detection
+        );
+
+        // Pula o threshold normal (edge detection já binarizou)
+        // A dilatação depois vai "preencher" o interior dos contornos
+    }
+
     // 3. Aplica threshold (binarização) se > 0
-    if threshold > 0 {
+    // Pula se edge_detection está ativo (já fez a binarização)
+    if threshold > 0 && edge_detection == 0 {
         let rgb = processed.to_rgb8();
         let (width, height) = rgb.dimensions();
 
