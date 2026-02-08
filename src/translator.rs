@@ -63,6 +63,44 @@ struct LibreTranslateResponse {
 }
 
 // ============================================================================
+// ESTRUTURAS DE DADOS - OpenAI
+// ============================================================================
+
+/// Mensagem no formato da API da OpenAI
+#[derive(Debug, Serialize)]
+struct OpenAIMessage {
+    role: String,
+    content: String,
+}
+
+/// Requisição para a API da OpenAI
+#[derive(Debug, Serialize)]
+struct OpenAIRequest {
+    model: String,
+    messages: Vec<OpenAIMessage>,
+    temperature: f32,
+    max_tokens: u32,
+}
+
+/// Resposta da API da OpenAI
+#[derive(Debug, Deserialize)]
+struct OpenAIResponse {
+    choices: Vec<OpenAIChoice>,
+}
+
+/// Uma escolha na resposta da OpenAI
+#[derive(Debug, Deserialize)]
+struct OpenAIChoice {
+    message: OpenAIResponseMessage,
+}
+
+/// Mensagem de resposta da OpenAI
+#[derive(Debug, Deserialize)]
+struct OpenAIResponseMessage {
+    content: String,
+}
+
+// ============================================================================
 // FUNÇÃO PRINCIPAL - TRADUÇÃO EM BATCH
 // ============================================================================
 
@@ -83,7 +121,8 @@ pub async fn translate_batch_with_provider(
     api_key: &str,
     source_lang: &str,
     target_lang: &str,
-    libretranslate_url: Option<&str>, // ← NOVO! (opcional)
+    libretranslate_url: Option<&str>,
+    openai_config: Option<&crate::config::OpenAIConfig>,
 ) -> Result<Vec<String>> {
     match provider.to_lowercase().as_str() {
         "deepl" => translate_batch_deepl(texts, api_key, source_lang, target_lang).await,
@@ -91,6 +130,14 @@ pub async fn translate_batch_with_provider(
         "libretranslate" => {
             let url = libretranslate_url.unwrap_or("http://localhost:5000");
             translate_batch_libretranslate(texts, source_lang, target_lang, url).await
+        }
+        "openai" => {
+            if let Some(cfg) = openai_config {
+                translate_batch_openai(texts, cfg).await
+            } else {
+                warn!("⚠️  OpenAI selecionado mas sem configuração, usando Google");
+                translate_batch_google(texts, source_lang, target_lang).await
+            }
         }
         _ => {
             warn!(
@@ -444,4 +491,149 @@ fn convert_lang_code_to_google(lang: &str) -> String {
         "JA" => "ja".to_string(),
         code => code.to_lowercase(),
     }
+}
+
+// ============================================================================
+// OPENAI TRADUTOR
+// ============================================================================
+
+/// Traduz múltiplos textos usando a API da OpenAI
+///
+/// Envia todos os textos de uma vez como JSON array no prompt,
+/// pedindo que o modelo retorne um JSON array com as traduções.
+/// Isso economiza tokens pois o system prompt só vai uma vez.
+async fn translate_batch_openai(
+    texts: &[String],
+    config: &crate::config::OpenAIConfig,
+) -> Result<Vec<String>> {
+    info!("🌐 [OpenAI] Iniciando tradução em batch...");
+    info!("   📝 {} textos para traduzir", texts.len());
+    info!("   🤖 Modelo: {}", config.model);
+
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Verifica API key
+    if config.api_key.is_empty() {
+        warn!("⚠️  OpenAI API key não configurada!");
+        anyhow::bail!("OpenAI API key não configurada");
+    }
+
+    // Monta o input como JSON array de strings
+    // Ex: ["Hello world", "How are you?"]
+    let input_json =
+        serde_json::to_string(texts).context("Falha ao serializar textos para JSON")?;
+
+    // Monta o prompt do usuário com os textos a traduzir
+    let user_prompt = format!("Traduza os seguintes textos. Input:\n{}", input_json);
+
+    // Monta a requisição
+    let request_body = OpenAIRequest {
+        model: config.model.clone(),
+        messages: vec![
+            OpenAIMessage {
+                role: "system".to_string(),
+                content: config.system_prompt.clone(),
+            },
+            OpenAIMessage {
+                role: "user".to_string(),
+                content: user_prompt,
+            },
+        ],
+        temperature: config.temperature,
+        max_tokens: config.max_tokens,
+    };
+
+    let client = reqwest::Client::new();
+
+    info!("   🌐 Enviando para OpenAI API...");
+
+    let response = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .header("Content-Type", "application/json")
+        .json(&request_body)
+        .send()
+        .await
+        .context("Falha ao enviar requisição para OpenAI")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        error!("❌ OpenAI API erro: {} - {}", status, error_text);
+        anyhow::bail!("OpenAI API erro {}: {}", status, error_text);
+    }
+
+    let openai_response: OpenAIResponse = response
+        .json()
+        .await
+        .context("Falha ao parsear resposta OpenAI")?;
+
+    // Extrai o conteúdo da resposta
+    let raw_content = openai_response
+        .choices
+        .first()
+        .map(|c| c.message.content.clone())
+        .unwrap_or_default();
+
+    info!("   📥 Resposta recebida: {} chars", raw_content.len());
+
+    // Parseia o JSON array da resposta
+    // O modelo pode retornar com ou sem ```json ... ```
+    let cleaned = raw_content
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    let translated: Vec<String> = match serde_json::from_str(cleaned) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            // Se não conseguiu parsear como JSON array, tenta tratar como texto simples
+            warn!("⚠️  Resposta não é JSON válido, tentando fallback: {}", e);
+            warn!("   Resposta raw: {}", cleaned);
+
+            // Se é um texto único, retorna como array de 1
+            if texts.len() == 1 {
+                vec![cleaned.to_string()]
+            } else {
+                // Tenta separar por linhas
+                cleaned
+                    .lines()
+                    .map(|l| l.trim().trim_matches('"').trim_matches(',').to_string())
+                    .filter(|l| !l.is_empty() && !l.starts_with('[') && !l.starts_with(']'))
+                    .collect()
+            }
+        }
+    };
+
+    // Verifica se o número de traduções bate com o input
+    if translated.len() != texts.len() {
+        warn!(
+            "⚠️  OpenAI retornou {} traduções para {} textos",
+            translated.len(),
+            texts.len()
+        );
+
+        // Se retornou menos, completa com os originais
+        // Se retornou mais, trunca
+        let mut result = Vec::with_capacity(texts.len());
+        for i in 0..texts.len() {
+            if let Some(t) = translated.get(i) {
+                result.push(t.clone());
+            } else {
+                result.push(texts[i].clone());
+            }
+        }
+
+        info!("✅ [OpenAI] Tradução concluída (com ajuste)!");
+        return Ok(result);
+    }
+
+    info!("✅ [OpenAI] Tradução concluída!");
+    info!("   🇧🇷 {} textos traduzidos", translated.len());
+
+    Ok(translated)
 }

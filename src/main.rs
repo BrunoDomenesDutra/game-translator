@@ -95,6 +95,8 @@ struct AppState {
     settings_mode: Arc<Mutex<bool>>,
     /// Fator de escala DPI (ex: 1.25 para 125%)
     dpi_scale: f32,
+    /// Contador de requests OpenAI na sessão atual
+    openai_request_count: Arc<Mutex<u32>>,
 }
 
 impl AppState {
@@ -121,6 +123,7 @@ impl AppState {
             overlay_hidden: Arc::new(Mutex::new(false)),
             settings_mode: Arc::new(Mutex::new(false)),
             dpi_scale,
+            openai_request_count: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -438,6 +441,12 @@ impl eframe::App for OverlayApp {
                         .clicked()
                     {
                         self.settings_tab = 6;
+                    }
+                    if ui
+                        .selectable_label(self.settings_tab == 7, "🤖 OpenAI")
+                        .clicked()
+                    {
+                        self.settings_tab = 7;
                     }
                 });
 
@@ -955,7 +964,7 @@ impl eframe::App for OverlayApp {
                                     ui.label("🔤 Provedor de Tradução:");
                                     ui.add_space(5.0);
 
-                                    let providers = vec!["google", "deepl", "libretranslate"];
+                                    let providers = vec!["google", "deepl", "libretranslate", "openai"];
                                     ui.horizontal(|ui| {
                                         ui.label("   Provedor ativo:");
                                         eframe::egui::ComboBox::from_id_source(
@@ -1120,6 +1129,181 @@ impl eframe::App for OverlayApp {
                                         }
                                     }
                                 }
+                            }
+                            7 => {
+                                // === ABA OPENAI ===
+                                ui.heading("🤖 OpenAI - Tradução com IA");
+                                ui.add_space(10.0);
+
+                                // --- API Key ---
+                                ui.group(|ui| {
+                                    ui.label("🔑 Autenticação:");
+                                    ui.add_space(5.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label("   API Key:");
+                                        ui.add(
+                                            eframe::egui::TextEdit::singleline(
+                                                &mut cfg.openai.api_key,
+                                            )
+                                            .password(true)
+                                            .desired_width(350.0),
+                                        );
+                                    });
+                                    if cfg.openai.api_key.is_empty() {
+                                        ui.label("   ⚠️ Necessário para usar OpenAI como provedor");
+                                    } else {
+                                        ui.label("   ✅ Configurado");
+                                    }
+                                });
+
+                                ui.add_space(10.0);
+
+                                // --- Modelo e parâmetros ---
+                                ui.group(|ui| {
+                                    ui.label("⚙️ Modelo e Parâmetros:");
+                                    ui.add_space(5.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Modelo:");
+                                        let models = vec![
+                                            "gpt-4o-mini",
+                                            "gpt-4o",
+                                            "gpt-4-turbo",
+                                            "gpt-3.5-turbo",
+                                        ];
+                                        eframe::egui::ComboBox::from_id_source("openai_model")
+                                            .selected_text(&cfg.openai.model)
+                                            .show_ui(ui, |ui| {
+                                                for m in &models {
+                                                    ui.selectable_value(
+                                                        &mut cfg.openai.model,
+                                                        m.to_string(),
+                                                        *m,
+                                                    );
+                                                }
+                                            });
+                                    });
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Temperature:");
+                                        ui.add(
+                                            eframe::egui::Slider::new(
+                                                &mut cfg.openai.temperature,
+                                                0.0..=2.0,
+                                            )
+                                            .step_by(0.1),
+                                        );
+                                    });
+                                    ui.label("      0.0 = literal, 0.3 = recomendado, 1.0+ = criativo");
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Max tokens:");
+                                        let mut tokens = cfg.openai.max_tokens as i32;
+                                        if ui
+                                            .add(eframe::egui::Slider::new(&mut tokens, 128..=4096))
+                                            .changed()
+                                        {
+                                            cfg.openai.max_tokens = tokens as u32;
+                                        }
+                                    });
+                                });
+
+                                ui.add_space(10.0);
+
+                                // --- Controle de custo ---
+                                ui.group(|ui| {
+                                    ui.label("💰 Controle de Custo:");
+                                    ui.add_space(5.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Limite de requests/sessão:");
+                                        let mut limit = cfg.openai.max_requests_per_session as i32;
+                                        if ui
+                                            .add(
+                                                eframe::egui::Slider::new(&mut limit, 0..=2000)
+                                                    .suffix(" req"),
+                                            )
+                                            .changed()
+                                        {
+                                            cfg.openai.max_requests_per_session = limit as u32;
+                                        }
+                                    });
+                                    ui.label("      0 = ilimitado");
+
+                                    ui.add_space(5.0);
+                                    let count = *self.state.openai_request_count.lock().unwrap();
+                                    let limit = cfg.openai.max_requests_per_session;
+                                    let status_text = if limit == 0 {
+                                        format!("   📊 Requests nesta sessão: {} (sem limite)", count)
+                                    } else {
+                                        format!("   📊 Requests nesta sessão: {} / {}", count, limit)
+                                    };
+                                    ui.label(status_text);
+
+                                    if count > 0 {
+                                        if ui.button("🔄 Resetar contador").clicked() {
+                                            *self.state.openai_request_count.lock().unwrap() = 0;
+                                        }
+                                    }
+
+                                    ui.add_space(5.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("   Fallback quando atingir limite:");
+                                        let fallbacks = vec!["google", "deepl", "libretranslate"];
+                                        eframe::egui::ComboBox::from_id_source("openai_fallback")
+                                            .selected_text(&cfg.openai.fallback_provider)
+                                            .show_ui(ui, |ui| {
+                                                for f in &fallbacks {
+                                                    ui.selectable_value(
+                                                        &mut cfg.openai.fallback_provider,
+                                                        f.to_string(),
+                                                        *f,
+                                                    );
+                                                }
+                                            });
+                                    });
+                                });
+
+                                ui.add_space(10.0);
+
+                                // --- System Prompt ---
+                                ui.group(|ui| {
+                                    ui.label("📝 System Prompt (instrução para a IA):");
+                                    ui.add_space(5.0);
+                                    ui.label("   Define o tom, estilo e regras da tradução:");
+                                    ui.add_space(5.0);
+
+                                    eframe::egui::ScrollArea::vertical()
+                                        .max_height(250.0)
+                                        .show(ui, |ui| {
+                                            ui.add(
+                                                eframe::egui::TextEdit::multiline(
+                                                    &mut cfg.openai.system_prompt,
+                                                )
+                                                .desired_width(f32::INFINITY)
+                                                .desired_rows(12)
+                                                .font(eframe::egui::TextStyle::Monospace),
+                                            );
+                                        });
+
+                                    ui.add_space(5.0);
+                                    if ui.button("🔄 Restaurar prompt padrão").clicked() {
+                                        cfg.openai.system_prompt =
+                                            crate::config::default_openai_system_prompt();
+                                    }
+                                });
+
+                                ui.add_space(10.0);
+
+                                // --- Dica de uso ---
+                                ui.group(|ui| {
+                                    ui.label("ℹ️ Como usar:");
+                                    ui.label("   1. Cole sua API key da OpenAI acima");
+                                    ui.label("   2. Na aba Serviços, selecione 'openai' como provedor");
+                                    ui.label("   3. Ajuste o prompt conforme o jogo que está traduzindo");
+                                    ui.label("   4. Salve as configurações");
+                                });
                             }
                             _ => {}
                         }
@@ -2060,8 +2244,7 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     // Tradução em batch
     info!("🌐 [3/4] Traduzindo {} textos...", texts_to_translate.len());
 
-    let (api_key, provider, source_lang, target_lang, libre_url) = {
-        // Pega do app_config pra ter hot reload
+    let (api_key, provider, source_lang, target_lang, libre_url, openai_config) = {
         let config = state.config.lock().unwrap();
         (
             config.app_config.translation.deepl_api_key.clone(),
@@ -2069,6 +2252,7 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
             config.app_config.translation.source_language.clone(),
             config.app_config.translation.target_language.clone(),
             config.app_config.translation.libretranslate_url.clone(),
+            config.app_config.openai.clone(),
         )
     };
 
@@ -2098,18 +2282,51 @@ fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) 
     if !not_cached.is_empty() {
         let texts_to_api: Vec<String> = not_cached.iter().map(|(_, t)| t.clone()).collect();
 
+        // Verifica se OpenAI atingiu limite de requests na sessão
+        let effective_provider = if provider == "openai"
+            && openai_config.max_requests_per_session > 0
+        {
+            let count = *state.openai_request_count.lock().unwrap();
+            if count >= openai_config.max_requests_per_session {
+                info!(
+                    "⚠️  OpenAI atingiu limite ({}/{}), usando fallback: {}",
+                    count, openai_config.max_requests_per_session, openai_config.fallback_provider
+                );
+                openai_config.fallback_provider.clone()
+            } else {
+                provider.clone()
+            }
+        } else {
+            provider.clone()
+        };
+
         let runtime = tokio::runtime::Runtime::new()?;
         let new_translations = runtime.block_on(async {
             translator::translate_batch_with_provider(
                 &texts_to_api,
-                &provider,
+                &effective_provider,
                 &api_key,
                 &source_lang,
                 &target_lang,
-                Some(&libre_url), // ← ADICIONE ESSA LINHA
+                Some(&libre_url),
+                Some(&openai_config),
             )
             .await
         })?;
+
+        // Incrementa contador se usou OpenAI
+        if effective_provider == "openai" {
+            *state.openai_request_count.lock().unwrap() += 1;
+            info!(
+                "📊 OpenAI requests: {}/{}",
+                *state.openai_request_count.lock().unwrap(),
+                if openai_config.max_requests_per_session == 0 {
+                    "∞".to_string()
+                } else {
+                    openai_config.max_requests_per_session.to_string()
+                }
+            );
+        }
 
         // Preenche os resultados e adiciona ao cache
         let mut cache_pairs: Vec<(String, String)> = Vec::new();
@@ -2379,7 +2596,7 @@ fn process_subtitle_translation(state: &AppState, text: &str) -> anyhow::Result<
     info!("📺 Traduzindo legenda: \"{}\"", text);
 
     // Pega configurações de tradução (do app_config pra ter hot reload)
-    let (api_key, provider, source_lang, target_lang, libre_url) = {
+    let (api_key, provider, source_lang, target_lang, libre_url, openai_config) = {
         let config = state.config.lock().unwrap();
         (
             config.app_config.translation.deepl_api_key.clone(),
@@ -2387,6 +2604,7 @@ fn process_subtitle_translation(state: &AppState, text: &str) -> anyhow::Result<
             config.app_config.translation.source_language.clone(),
             config.app_config.translation.target_language.clone(),
             config.app_config.translation.libretranslate_url.clone(),
+            config.app_config.openai.clone(),
         )
     };
 
@@ -2400,19 +2618,41 @@ fn process_subtitle_translation(state: &AppState, text: &str) -> anyhow::Result<
         return Ok(());
     }
 
+    // Verifica se OpenAI atingiu limite de requests na sessão
+    let effective_provider = if provider == "openai" && openai_config.max_requests_per_session > 0 {
+        let count = *state.openai_request_count.lock().unwrap();
+        if count >= openai_config.max_requests_per_session {
+            info!(
+                "⚠️  OpenAI limite atingido ({}/{}), fallback: {}",
+                count, openai_config.max_requests_per_session, openai_config.fallback_provider
+            );
+            openai_config.fallback_provider.clone()
+        } else {
+            provider.clone()
+        }
+    } else {
+        provider.clone()
+    };
+
     // Traduz via API
     let runtime = tokio::runtime::Runtime::new()?;
     let translated = runtime.block_on(async {
         translator::translate_batch_with_provider(
             &[text.to_string()],
-            &provider,
+            &effective_provider,
             &api_key,
             &source_lang,
             &target_lang,
             Some(&libre_url),
+            Some(&openai_config),
         )
         .await
     })?;
+
+    // Incrementa contador se usou OpenAI
+    if effective_provider == "openai" {
+        *state.openai_request_count.lock().unwrap() += 1;
+    }
 
     if let Some(translated_text) = translated.first() {
         info!("   ✅ Traduzido: \"{}\"", translated_text);

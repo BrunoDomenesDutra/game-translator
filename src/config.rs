@@ -328,6 +328,102 @@ impl Default for DisplayConfig {
     }
 }
 
+/// Configuração da OpenAI para tradução com IA
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIConfig {
+    /// API key da OpenAI
+    #[serde(default)]
+    pub api_key: String,
+
+    /// Modelo a usar (ex: "gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo")
+    #[serde(default = "default_openai_model")]
+    pub model: String,
+
+    /// Temperature: controla criatividade (0.0 = literal, 1.0+ = criativo)
+    /// Para tradução, valores baixos (0.1-0.4) são melhores
+    #[serde(default = "default_openai_temperature")]
+    pub temperature: f32,
+
+    /// Máximo de tokens na resposta
+    #[serde(default = "default_openai_max_tokens")]
+    pub max_tokens: u32,
+
+    /// System prompt: instrução completa para o modelo
+    /// Define como a IA deve traduzir (tom, estilo, regras)
+    #[serde(default = "default_openai_system_prompt")]
+    pub system_prompt: String,
+
+    /// Limite de requests por sessão (0 = ilimitado)
+    /// Quando atingir, cai para o fallback_provider
+    #[serde(default = "default_openai_max_requests")]
+    pub max_requests_per_session: u32,
+
+    /// Provedor de fallback quando OpenAI falha ou atinge limite
+    /// Opções: "google", "deepl", "libretranslate"
+    #[serde(default = "default_openai_fallback")]
+    pub fallback_provider: String,
+}
+
+fn default_openai_model() -> String {
+    "gpt-4o-mini".to_string()
+}
+
+fn default_openai_temperature() -> f32 {
+    0.3
+}
+
+fn default_openai_max_tokens() -> u32 {
+    1024
+}
+
+fn default_openai_max_requests() -> u32 {
+    0 // 0 = ilimitado
+}
+
+fn default_openai_fallback() -> String {
+    "google".to_string()
+}
+
+pub fn default_openai_system_prompt() -> String {
+    r#"Você é um tradutor profissional de LEGENDAS DE JOGOS.
+
+Contexto:
+- Jogo com temática Yakuza / crime japonês
+- Diálogos urbanos, adultos, cheios de gírias
+- Tom natural, coloquial, brasileiro
+
+Regras OBRIGATÓRIAS:
+- Traduza para PORTUGUÊS DO BRASIL
+- Priorize LOCALIZAÇÃO, não tradução literal
+- Use gírias brasileiras equivalentes quando fizer sentido
+- Mantenha palavrões quando existirem
+- Não suavize o tom
+- Preserve nomes próprios e honoríficos (-san, -kun, -sensei)
+- Preserve placeholders ({}, %s, %d)
+- Preserve quebras de linha
+- Preserve pontuação dramática (… — ! ?)
+
+Formato de saída:
+- Retorne APENAS um JSON array de strings
+- Mesma ordem do input
+- Sem comentários, sem explicações"#
+        .to_string()
+}
+
+impl Default for OpenAIConfig {
+    fn default() -> Self {
+        OpenAIConfig {
+            api_key: String::new(),
+            model: default_openai_model(),
+            temperature: default_openai_temperature(),
+            max_tokens: default_openai_max_tokens(),
+            system_prompt: default_openai_system_prompt(),
+            max_requests_per_session: default_openai_max_requests(),
+            fallback_provider: default_openai_fallback(),
+        }
+    }
+}
+
 /// Estrutura principal de configuração
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -338,6 +434,7 @@ pub struct AppConfig {
     pub display: DisplayConfig,
     pub translation: TranslationConfig,
     pub subtitle: SubtitleConfig,
+    pub openai: OpenAIConfig,
 }
 
 impl Default for AppConfig {
@@ -349,7 +446,8 @@ impl Default for AppConfig {
             hotkeys: HotkeyConfig::default(),
             display: DisplayConfig::default(),
             translation: TranslationConfig::default(),
-            subtitle: SubtitleConfig::default(), // <- ADICIONE ESTA LINHA
+            subtitle: SubtitleConfig::default(),
+            openai: OpenAIConfig::default(),
         }
     }
 }
