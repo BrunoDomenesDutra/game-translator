@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Número máximo de legendas no histórico
-const MAX_SUBTITLE_HISTORY: usize = 10;
+const MAX_SUBTITLE_HISTORY: usize = 50;
 
 /// Threshold de similaridade Levenshtein (0.0 a 1.0)
 /// Textos com similaridade acima deste valor são considerados "iguais"

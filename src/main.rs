@@ -1,4 +1,4 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 // game-translator/src/main.rs
 
@@ -179,6 +179,8 @@ struct OverlayApp {
     settings_tab: u8,
     /// Mensagem de status
     settings_status: Option<(String, std::time::Instant)>,
+    /// Se já posicionou a janela de configurações (evita forçar posição todo frame)
+    settings_positioned: bool,
 }
 
 impl eframe::App for OverlayApp {
@@ -320,9 +322,13 @@ impl eframe::App for OverlayApp {
                 AppCommand::CloseSettings => {
                     info!("⚙️  Saindo do modo configurações...");
 
-                    // Desativa o modo configurações
                     *self.state.settings_mode.lock().unwrap() = false;
                     self.settings_config = None;
+                    self.settings_positioned = false; // Reseta pra próxima abertura
+
+                    // Restaura janela para modo overlay
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(false));
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(false));
                 }
             }
         }
@@ -333,21 +339,33 @@ impl eframe::App for OverlayApp {
         let is_settings_mode = *self.state.settings_mode.lock().unwrap();
 
         if is_settings_mode {
-            // Redimensiona a janela para tamanho de configurações
-            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
-                eframe::egui::vec2(520.0, 650.0),
-            ));
-            let screen_w =
-                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) }
-                    as f32
-                    / self.state.dpi_scale;
-            let screen_h =
-                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CYSCREEN) }
-                    as f32
-                    / self.state.dpi_scale;
-            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
-                eframe::egui::pos2((screen_w - 520.0) / 2.0, (screen_h - 650.0) / 2.0),
-            ));
+            // Na primeira vez que abre as configs, centraliza e define tamanho inicial.
+            // Depois disso, não força mais posição/tamanho — deixa o usuário mover e redimensionar.
+            // Usamos uma flag estática pra saber se já posicionou.
+            {
+                if !self.settings_positioned {
+                    self.settings_positioned = true;
+
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(true));
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(true));
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
+                        eframe::egui::vec2(600.0, 700.0),
+                    ));
+
+                    let screen_w = unsafe {
+                        winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN)
+                    } as f32
+                        / self.state.dpi_scale;
+                    let screen_h = unsafe {
+                        winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CYSCREEN)
+                    } as f32
+                        / self.state.dpi_scale;
+
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                        eframe::egui::pos2((screen_w - 600.0) / 2.0, (screen_h - 700.0) / 2.0),
+                    ));
+                }
+            }
 
             // Remove transparência temporariamente
             let visuals = eframe::egui::Visuals::dark();
@@ -367,6 +385,9 @@ impl eframe::App for OverlayApp {
                             if ui.button("❌ Fechar").clicked() {
                                 *self.state.settings_mode.lock().unwrap() = false;
                                 self.settings_config = None;
+                                self.settings_positioned = false;
+                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(false));
+                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(false));
                             }
                         },
                     );
@@ -411,6 +432,12 @@ impl eframe::App for OverlayApp {
                         .clicked()
                     {
                         self.settings_tab = 5;
+                    }
+                    if ui
+                        .selectable_label(self.settings_tab == 6, "📜 Histórico")
+                        .clicked()
+                    {
+                        self.settings_tab = 6;
                     }
                 });
 
@@ -1051,6 +1078,48 @@ impl eframe::App for OverlayApp {
                                         ui.label("   ✅ Configurado");
                                     }
                                 });
+                            }
+                            6 => {
+                                // === ABA HISTÓRICO ===
+                                ui.heading("📜 Histórico de Legendas");
+                                ui.add_space(10.0);
+
+                                // Botão de limpar
+                                if ui.button("🗑️ Limpar histórico").clicked() {
+                                    self.state.subtitle_state.reset();
+                                }
+
+                                ui.add_space(10.0);
+                                ui.separator();
+                                ui.add_space(5.0);
+
+                                // Pega o histórico
+                                let history = self.state.subtitle_state.get_subtitle_history();
+
+                                if history.is_empty() {
+                                    ui.label("Nenhuma legenda traduzida ainda.");
+                                    ui.label("Ative o modo legenda (Numpad 0) para começar.");
+                                } else {
+                                    ui.label(format!("{} legendas no histórico:", history.len()));
+                                    ui.add_space(5.0);
+
+                                    // Lista as legendas (mais recente em cima)
+                                    for (i, entry) in history.iter().rev().enumerate() {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                eframe::egui::RichText::new(
+                                                    format!("{}.", i + 1)
+                                                ).weak()
+                                            );
+                                            ui.label(&entry.translated);
+                                        });
+
+                                        // Separador sutil entre itens
+                                        if i < history.len() - 1 {
+                                            ui.separator();
+                                        }
+                                    }
+                                }
                             }
                             _ => {}
                         }
@@ -2491,6 +2560,7 @@ fn main() -> Result<()> {
                 settings_config: None,
                 settings_tab: 0,
                 settings_status: None,
+                settings_positioned: false,
                 // last_window_size: (0.0, 0.0),
             }) as Box<dyn eframe::App>)
         }),
