@@ -316,7 +316,7 @@ impl eframe::App for OverlayApp {
             // FOOTER FIXO - Botões de ação (sempre visível embaixo)
             // ================================================================
             eframe::egui::TopBottomPanel::bottom("settings_footer").show(ctx, |ui| {
-                ui.add_space(5.0);
+                ui.add_space(10.0);
 
                 ui.horizontal(|ui| {
                     // Botão Salvar
@@ -404,7 +404,7 @@ impl eframe::App for OverlayApp {
                     }
 
                     // Espaço extra no final pra não colar no footer
-                    ui.add_space(20.0);
+                    ui.add_space(5.0);
                 });
             });
 
