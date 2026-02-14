@@ -1,9 +1,9 @@
 {
   "region": {
-    "x": 739,
-    "y": 1181,
-    "width": 1137,
-    "height": 237
+    "x": 750,
+    "y": 1183,
+    "width": 1057,
+    "height": 173
   },
   "overlay": {
     "x": 265,
@@ -51,17 +51,17 @@
       "grayscale": true,
       "invert": false,
       "contrast": 2.0,
-      "threshold": 160,
+      "threshold": 185,
       "save_debug_image": true,
       "upscale": 2.0,
-      "blur": 1.0,
-      "dilate": 3,
+      "blur": 1.5,
+      "dilate": 1,
       "erode": 0,
-      "edge_detection": 50
+      "edge_detection": 0
     }
   },
   "translation": {
-    "provider": "google",
+    "provider": "openai",
     "source_language": "EN",
     "target_language": "PT-BR",
     "libretranslate_url": "http://localhost:5000",
@@ -104,20 +104,21 @@
       "grayscale": true,
       "invert": false,
       "contrast": 2.0,
-      "threshold": 180,
+      "threshold": 185,
       "save_debug_image": true,
       "upscale": 2.0,
-      "blur": 1.0,
+      "blur": 1.5,
       "dilate": 1,
       "erode": 0,
       "edge_detection": 0
     }
   },
   "openai": {
-    "api_key": "",
+    "api_key": "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",
     "model": "gpt-4o-mini",
     "temperature": 0.3,
     "max_tokens": 1024,
+    "context_lines": 5,
     "system_prompt": "Você é um tradutor profissional de LEGENDAS DE JOGOS.\n\nContexto:\n- Jogo com temática Yakuza / crime japonês\n- Diálogos urbanos, adultos, cheios de gírias\n- Tom natural, coloquial, brasileiro\n\nRegras OBRIGATÓRIAS:\n- Traduza para PORTUGUÊS DO BRASIL\n- Priorize LOCALIZAÇÃO, não tradução literal\n- Use gírias brasileiras equivalentes quando fizer sentido\n- Mantenha palavrões quando existirem\n- Não suavize o tom\n- Preserve nomes próprios e honoríficos (-san, -kun, -sensei)\n- Preserve placeholders ({}, %s, %d)\n- Preserve quebras de linha\n- Preserve pontuação dramática (… — ! ?)\n\nFormato de saída:\n- Retorne APENAS um JSON array de strings\n- Mesma ordem do input\n- Sem comentários, sem explicações",
     "max_requests_per_session": 0,
     "fallback_provider": "google"

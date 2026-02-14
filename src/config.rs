@@ -362,6 +362,16 @@ pub struct OpenAIConfig {
     /// Opções: "google", "deepl", "libretranslate"
     #[serde(default = "default_openai_fallback")]
     pub fallback_provider: String,
+
+    /// Quantas legendas anteriores enviar como contexto (0 = desativado)
+    /// Ajuda a IA a manter coerência no diálogo
+    #[serde(default = "default_openai_context_lines")]
+    pub context_lines: u32,
+
+    /// Informações sobre o jogo (nome, gênero, etc.)
+    /// Ajuda a IA a traduzir nomes e termos corretamente
+    #[serde(default)]
+    pub game_context: String,
 }
 
 fn default_openai_model() -> String {
@@ -382,6 +392,10 @@ fn default_openai_max_requests() -> u32 {
 
 fn default_openai_fallback() -> String {
     "google".to_string()
+}
+
+fn default_openai_context_lines() -> u32 {
+    5
 }
 
 pub fn default_openai_system_prompt() -> String {
@@ -420,6 +434,8 @@ impl Default for OpenAIConfig {
             system_prompt: default_openai_system_prompt(),
             max_requests_per_session: default_openai_max_requests(),
             fallback_provider: default_openai_fallback(),
+            context_lines: default_openai_context_lines(),
+            game_context: String::new(),
         }
     }
 }

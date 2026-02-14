@@ -133,7 +133,7 @@ pub async fn translate_batch_with_provider(
         }
         "openai" => {
             if let Some(cfg) = openai_config {
-                translate_batch_openai(texts, cfg).await
+                translate_batch_openai(texts, cfg, None).await
             } else {
                 warn!("⚠️  OpenAI selecionado mas sem configuração, usando Google");
                 translate_batch_google(texts, source_lang, target_lang).await
@@ -148,6 +148,39 @@ pub async fn translate_batch_with_provider(
             translate_batch_libretranslate(texts, source_lang, target_lang, url).await
         }
     }
+}
+
+/// Traduz textos com contexto de conversa (específico para OpenAI no modo legenda)
+/// O contexto são as últimas N legendas já traduzidas, ajudando a IA
+/// a manter coerência no diálogo
+pub async fn translate_with_context(
+    texts: &[String],
+    provider: &str,
+    api_key: &str,
+    source_lang: &str,
+    target_lang: &str,
+    libretranslate_url: Option<&str>,
+    openai_config: Option<&crate::config::OpenAIConfig>,
+    context: &[String],
+) -> Result<Vec<String>> {
+    // Só OpenAI usa contexto — outros provedores ignoram
+    if provider == "openai" {
+        if let Some(cfg) = openai_config {
+            return translate_batch_openai(texts, cfg, Some(context)).await;
+        }
+    }
+
+    // Fallback: traduz normalmente sem contexto
+    translate_batch_with_provider(
+        texts,
+        provider,
+        api_key,
+        source_lang,
+        target_lang,
+        libretranslate_url,
+        openai_config,
+    )
+    .await
 }
 
 /// Função de compatibilidade (usa DeepL por padrão)
@@ -505,6 +538,7 @@ fn convert_lang_code_to_google(lang: &str) -> String {
 async fn translate_batch_openai(
     texts: &[String],
     config: &crate::config::OpenAIConfig,
+    context: Option<&[String]>,
 ) -> Result<Vec<String>> {
     info!("🌐 [OpenAI] Iniciando tradução em batch...");
     info!("   📝 {} textos para traduzir", texts.len());
@@ -525,8 +559,37 @@ async fn translate_batch_openai(
     let input_json =
         serde_json::to_string(texts).context("Falha ao serializar textos para JSON")?;
 
-    // Monta o prompt do usuário com os textos a traduzir
-    let user_prompt = format!("Traduza os seguintes textos. Input:\n{}", input_json);
+    // Monta o prompt do usuário com contexto + textos a traduzir
+    let user_prompt = {
+        let mut prompt = String::new();
+
+        // Adiciona informações do jogo se disponível
+        if !config.game_context.is_empty() {
+            prompt.push_str(&format!("Jogo: {}\n\n", config.game_context));
+        }
+
+        // Adiciona contexto das falas anteriores (se houver)
+        if let Some(ctx) = context {
+            if !ctx.is_empty() {
+                prompt.push_str("Contexto das últimas falas (para manter coerência):\n");
+                for line in ctx {
+                    prompt.push_str(&format!("- {}\n", line));
+                }
+                prompt.push('\n');
+            }
+        }
+
+        prompt.push_str(&format!(
+            "Traduza os seguintes textos. Input:\n{}",
+            input_json
+        ));
+        prompt
+    };
+
+    info!(
+        "   📎 Contexto: {} falas anteriores",
+        context.map(|c| c.len()).unwrap_or(0)
+    );
 
     // Monta a requisição
     let request_body = OpenAIRequest {

@@ -12,12 +12,15 @@ extern crate log;
 // ============================================================================
 // DECLARAÇÃO DE MÓDULOS
 // ============================================================================
+mod app_state;
 mod cache;
 mod config;
 mod hotkey;
 mod ocr;
+mod processing;
 mod region_selector;
 mod screenshot;
+mod settings_ui;
 mod subtitle;
 mod translator;
 mod tts;
@@ -26,148 +29,15 @@ mod tts;
 // IMPORTS
 // ============================================================================
 use anyhow::Result;
+use app_state::{AppCommand, AppState, CaptureMode};
 use config::Config;
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver};
 use notify::{RecursiveMode, Watcher};
-use ocr::TranslatedText;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-// ============================================================================
-// COMANDOS ENTRE THREADS
-// ============================================================================
-
-/// Comandos que podem ser enviados da thread de hotkeys para a main thread
-#[derive(Debug, Clone)]
-enum AppCommand {
-    /// Abre o seletor de região
-    OpenRegionSelector,
-    /// Abre o seletor de região de legendas
-    OpenSubtitleRegionSelector,
-    /// Abre a janela de configurações
-    OpenSettings,
-    /// Fecha a janela de configurações
-    CloseSettings,
-}
-
-// ============================================================================
-// ESTRUTURA DE ESTADO COMPARTILHADO
-// ============================================================================
-/// Estado compartilhado entre a UI (overlay) e a thread de hotkeys
-/// Região onde o texto foi capturado
-#[derive(Clone, Debug)]
-struct CaptureRegion {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-}
-/// Modo de captura (afeta como o overlay renderiza)
-#[derive(Clone, Debug, PartialEq)]
-enum CaptureMode {
-    /// Captura de região específica - exibe texto combinado na região
-    Region,
-    /// Captura de tela inteira - exibe cada texto na posição original
-    FullScreen,
-}
-
-#[derive(Clone)]
-struct AppState {
-    config: Arc<Mutex<Config>>,
-    translated_items: Arc<Mutex<Vec<TranslatedText>>>,
-    capture_region: Arc<Mutex<Option<CaptureRegion>>>,
-    capture_mode: Arc<Mutex<CaptureMode>>,
-    translation_timestamp: Arc<Mutex<Option<std::time::Instant>>>,
-    command_sender: Sender<AppCommand>,
-    /// Cache de traduções
-    translation_cache: cache::TranslationCache,
-    /// Indica se o modo legenda está ativo
-    subtitle_mode_active: Arc<Mutex<bool>>,
-    /// Estado do sistema de legendas
-    subtitle_state: subtitle::SubtitleState,
-    /// Controla se o overlay deve ficar escondido (durante captura)
-    overlay_hidden: Arc<Mutex<bool>>,
-    /// Controla se está no modo de configurações
-    settings_mode: Arc<Mutex<bool>>,
-    /// Fator de escala DPI (ex: 1.25 para 125%)
-    dpi_scale: f32,
-    /// Contador de requests OpenAI na sessão atual
-    openai_request_count: Arc<Mutex<u32>>,
-}
-
-impl AppState {
-    fn new(config: Config, command_sender: Sender<AppCommand>, dpi_scale: f32) -> Self {
-        // Cria cache com persistência em disco
-        let translation_cache = cache::TranslationCache::new(true);
-
-        // Cria estado de legendas com configurações do config
-        let subtitle_state = subtitle::SubtitleState::new(
-            config.app_config.subtitle.min_display_secs,
-            config.app_config.subtitle.max_display_secs,
-        );
-
-        AppState {
-            config: Arc::new(Mutex::new(config)),
-            translated_items: Arc::new(Mutex::new(Vec::new())),
-            capture_region: Arc::new(Mutex::new(None)),
-            capture_mode: Arc::new(Mutex::new(CaptureMode::Region)),
-            translation_timestamp: Arc::new(Mutex::new(None)),
-            command_sender,
-            translation_cache,
-            subtitle_mode_active: Arc::new(Mutex::new(false)),
-            subtitle_state,
-            overlay_hidden: Arc::new(Mutex::new(false)),
-            settings_mode: Arc::new(Mutex::new(false)),
-            dpi_scale,
-            openai_request_count: Arc::new(Mutex::new(0)),
-        }
-    }
-
-    /// Define a lista de textos traduzidos com posições, região e modo de captura
-    fn set_translations(
-        &self,
-        items: Vec<TranslatedText>,
-        region: CaptureRegion,
-        mode: CaptureMode,
-    ) {
-        *self.translated_items.lock().unwrap() = items;
-        *self.capture_region.lock().unwrap() = Some(region);
-        *self.capture_mode.lock().unwrap() = mode;
-        *self.translation_timestamp.lock().unwrap() = Some(std::time::Instant::now());
-    }
-
-    /// Obtém a lista de traduções, região, modo e timestamp
-    fn get_translations(
-        &self,
-    ) -> Option<(
-        Vec<TranslatedText>,
-        CaptureRegion,
-        CaptureMode,
-        std::time::Instant,
-    )> {
-        let items = self.translated_items.lock().unwrap().clone();
-        let region = self.capture_region.lock().unwrap().clone()?;
-        let mode = self.capture_mode.lock().unwrap().clone();
-        let timestamp = self.translation_timestamp.lock().unwrap().clone()?;
-
-        if items.is_empty() {
-            return None;
-        }
-
-        Some((items, region, mode, timestamp))
-    }
-
-    /// Limpa as traduções
-    fn clear_translations(&self) {
-        *self.translated_items.lock().unwrap() = Vec::new();
-        *self.capture_region.lock().unwrap() = None;
-        *self.translation_timestamp.lock().unwrap() = None;
-    }
-}
 // ============================================================================
 // APLICAÇÃO DE OVERLAY (roda na main thread)
 // ============================================================================
@@ -377,20 +247,24 @@ impl eframe::App for OverlayApp {
             eframe::egui::CentralPanel::default().show(ctx, |ui| {
                 // Título
                 ui.horizontal(|ui| {
-                    ui.heading("⚙️ Game Translator - Configurações");
+                    ui.heading("Game Translator - Configurações");
                     ui.with_layout(
                         eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
                         |ui| {
-                            if ui.button("🚪 Sair do Programa").clicked() {
+                            if ui.button("Sair do Programa").clicked() {
                                 std::process::exit(0);
                             }
                             ui.add_space(10.0);
-                            if ui.button("❌ Fechar").clicked() {
+                            if ui.button("Fechar").clicked() {
                                 *self.state.settings_mode.lock().unwrap() = false;
                                 self.settings_config = None;
                                 self.settings_positioned = false;
-                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(false));
-                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(false));
+                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(
+                                    false,
+                                ));
+                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(
+                                    false,
+                                ));
                             }
                         },
                     );
@@ -401,926 +275,63 @@ impl eframe::App for OverlayApp {
                 // Abas
                 ui.horizontal(|ui| {
                     if ui
-                        .selectable_label(self.settings_tab == 0, "🖼️ Overlay")
+                        .selectable_label(self.settings_tab == 0, "Overlay")
                         .clicked()
                     {
                         self.settings_tab = 0;
                     }
                     if ui
-                        .selectable_label(self.settings_tab == 1, "🔤 Fonte")
+                        .selectable_label(self.settings_tab == 1, "Fonte")
                         .clicked()
                     {
                         self.settings_tab = 1;
                     }
                     if ui
-                        .selectable_label(self.settings_tab == 2, "🖥️ Display")
+                        .selectable_label(self.settings_tab == 2, "Display")
                         .clicked()
                     {
                         self.settings_tab = 2;
                     }
                     if ui
-                        .selectable_label(self.settings_tab == 3, "📺 Legendas")
+                        .selectable_label(self.settings_tab == 3, "Legendas")
                         .clicked()
                     {
                         self.settings_tab = 3;
                     }
                     if ui
-                        .selectable_label(self.settings_tab == 4, "⌨️ Atalhos")
+                        .selectable_label(self.settings_tab == 4, "Atalhos")
                         .clicked()
                     {
                         self.settings_tab = 4;
                     }
                     if ui
-                        .selectable_label(self.settings_tab == 5, "🌐 Serviços")
+                        .selectable_label(self.settings_tab == 5, "Servicos")
                         .clicked()
                     {
                         self.settings_tab = 5;
                     }
                     if ui
-                        .selectable_label(self.settings_tab == 6, "📜 Histórico")
+                        .selectable_label(self.settings_tab == 6, "Historico")
                         .clicked()
                     {
                         self.settings_tab = 6;
                     }
                     if ui
-                        .selectable_label(self.settings_tab == 7, "🤖 OpenAI")
+                        .selectable_label(self.settings_tab == 7, "OpenAI")
                         .clicked()
                     {
                         self.settings_tab = 7;
                     }
                 });
 
-                ui.separator();
-                ui.add_space(10.0);
+                ui.add_space(5.0);
 
-                // Conteúdo das abas
-                if let Some(ref mut cfg) = self.settings_config {
-                    eframe::egui::ScrollArea::vertical().show(ui, |ui| {
-                        match self.settings_tab {
-                            0 => {
-                                // === ABA OVERLAY ===
-                                ui.heading("🖼️ Overlay");
-                                ui.add_space(10.0);
-                                ui.checkbox(
-                                    &mut cfg.overlay.show_background,
-                                    "Mostrar fundo do overlay",
-                                );
-                                ui.label("   Se desativado, mostra apenas texto com contorno");
-                            }
-                            1 => {
-                                // === ABA FONTE ===
-                                ui.heading("🔤 Fonte (Modo Região/Tela Cheia)");
-                                ui.add_space(10.0);
-
-                                ui.horizontal(|ui| {
-                                    ui.label("Tamanho da fonte:");
-                                    ui.add(
-                                        eframe::egui::Slider::new(&mut cfg.font.size, 12.0..=72.0)
-                                            .suffix("px"),
-                                    );
-                                });
-
-                                ui.add_space(10.0);
-                                ui.checkbox(&mut cfg.font.outline.enabled, "Contorno ativado");
-
-                                if cfg.font.outline.enabled {
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Espessura:");
-                                        let mut width = cfg.font.outline.width as i32;
-                                        if ui
-                                            .add(
-                                                eframe::egui::Slider::new(&mut width, 1..=10)
-                                                    .suffix("px"),
-                                            )
-                                            .changed()
-                                        {
-                                            cfg.font.outline.width = width as u32;
-                                        }
-                                    });
-                                }
-                            }
-                            2 => {
-                                // === ABA DISPLAY ===
-                                ui.heading("🖥️ Display - Pré-processamento OCR");
-                                ui.add_space(10.0);
-
-                                ui.checkbox(
-                                    &mut cfg.display.preprocess.enabled,
-                                    "Pré-processamento ativado",
-                                );
-
-                                if cfg.display.preprocess.enabled {
-                                    ui.add_space(10.0);
-                                    ui.indent("preprocess", |ui| {
-                                        ui.checkbox(
-                                            &mut cfg.display.preprocess.grayscale,
-                                            "Escala de cinza",
-                                        );
-                                        ui.checkbox(
-                                            &mut cfg.display.preprocess.invert,
-                                            "Inverter cores",
-                                        );
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Contraste:");
-                                            ui.add(
-                                                eframe::egui::Slider::new(
-                                                    &mut cfg.display.preprocess.contrast,
-                                                    0.5..=10.0,
-                                                )
-                                                .suffix("x"),
-                                            );
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Threshold:");
-                                            let mut threshold =
-                                                cfg.display.preprocess.threshold as i32;
-                                            if ui
-                                                .add(eframe::egui::Slider::new(
-                                                    &mut threshold,
-                                                    0..=255,
-                                                ))
-                                                .changed()
-                                            {
-                                                cfg.display.preprocess.threshold = threshold as u8;
-                                            }
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Blur:");
-                                            ui.add(
-                                                eframe::egui::Slider::new(
-                                                    &mut cfg.display.preprocess.blur,
-                                                    0.0..=5.0,
-                                                )
-                                                .suffix("σ"),
-                                            );
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Dilatação:");
-                                            let mut d = cfg.display.preprocess.dilate as i32;
-                                            if ui
-                                                .add(
-                                                    eframe::egui::Slider::new(&mut d, 0..=5)
-                                                        .suffix("px"),
-                                                )
-                                                .changed()
-                                            {
-                                                cfg.display.preprocess.dilate = d as u8;
-                                            }
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Erosão:");
-                                            let mut e = cfg.display.preprocess.erode as i32;
-                                            if ui
-                                                .add(
-                                                    eframe::egui::Slider::new(&mut e, 0..=5)
-                                                        .suffix("px"),
-                                                )
-                                                .changed()
-                                            {
-                                                cfg.display.preprocess.erode = e as u8;
-                                            }
-                                        });
-
-                                        ui.separator();
-                                        ui.horizontal(|ui| {
-                                            ui.label("Edge Detection:");
-                                            let mut ed = cfg.display.preprocess.edge_detection as i32;
-                                            if ui.add(eframe::egui::Slider::new(&mut ed, 0..=150).suffix("")).changed() {
-                                                cfg.display.preprocess.edge_detection = ed as u8;
-                                            }
-                                        });
-                                        ui.label("   0=desativado, 30-80=recomendado (substitui threshold)");
-
-                                        ui.checkbox(
-                                            &mut cfg.display.preprocess.save_debug_image,
-                                            "Salvar imagem debug",
-                                        );
-                                    });
-                                }
-                            }
-                            3 => {
-                                // === ABA LEGENDAS ===
-                                ui.heading("📺 Legendas");
-                                ui.add_space(10.0);
-
-                                ui.horizontal(|ui| {
-                                    ui.label("Intervalo de captura:");
-                                    let mut interval = cfg.subtitle.capture_interval_ms as i32;
-                                    if ui
-                                        .add(
-                                            eframe::egui::Slider::new(&mut interval, 50..=2000)
-                                                .suffix("ms"),
-                                        )
-                                        .changed()
-                                    {
-                                        cfg.subtitle.capture_interval_ms = interval as u64;
-                                    }
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label("Máximo de linhas:");
-                                    let mut lines = cfg.subtitle.max_lines as i32;
-                                    if ui
-                                        .add(eframe::egui::Slider::new(&mut lines, 1..=10))
-                                        .changed()
-                                    {
-                                        cfg.subtitle.max_lines = lines as usize;
-                                    }
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label("Timeout (sem texto):");
-                                    let mut timeout = cfg.subtitle.max_display_secs as i32;
-                                    if ui
-                                        .add(
-                                            eframe::egui::Slider::new(&mut timeout, 1..=30)
-                                                .suffix("s"),
-                                        )
-                                        .changed()
-                                    {
-                                        cfg.subtitle.max_display_secs = timeout as u64;
-                                    }
-                                });
-
-                                ui.add_space(15.0);
-                                ui.separator();
-                                ui.label("🔤 Fonte das legendas:");
-                                ui.add_space(5.0);
-
-                                ui.horizontal(|ui| {
-                                    ui.label("   Tamanho:");
-                                    ui.add(
-                                        eframe::egui::Slider::new(
-                                            &mut cfg.subtitle.font.size,
-                                            12.0..=72.0,
-                                        )
-                                        .suffix("px"),
-                                    );
-                                });
-
-                                ui.checkbox(
-                                    &mut cfg.subtitle.font.outline.enabled,
-                                    "   Contorno ativado",
-                                );
-
-                                if cfg.subtitle.font.outline.enabled {
-                                    ui.horizontal(|ui| {
-                                        ui.label("      Espessura:");
-                                        let mut width = cfg.subtitle.font.outline.width as i32;
-                                        if ui
-                                            .add(
-                                                eframe::egui::Slider::new(&mut width, 1..=10)
-                                                    .suffix("px"),
-                                            )
-                                            .changed()
-                                        {
-                                            cfg.subtitle.font.outline.width = width as u32;
-                                        }
-                                    });
-                                }
-
-                                ui.add_space(15.0);
-                                ui.separator();
-                                ui.label("🔧 Pré-processamento OCR (Legendas):");
-                                ui.add_space(5.0);
-
-                                ui.checkbox(&mut cfg.subtitle.preprocess.enabled, "   Ativado");
-
-                                if cfg.subtitle.preprocess.enabled {
-                                    ui.indent("sub_preprocess", |ui| {
-                                        ui.checkbox(
-                                            &mut cfg.subtitle.preprocess.grayscale,
-                                            "Escala de cinza",
-                                        );
-                                        ui.checkbox(
-                                            &mut cfg.subtitle.preprocess.invert,
-                                            "Inverter cores",
-                                        );
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Contraste:");
-                                            ui.add(
-                                                eframe::egui::Slider::new(
-                                                    &mut cfg.subtitle.preprocess.contrast,
-                                                    0.5..=10.0,
-                                                )
-                                                .suffix("x"),
-                                            );
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Threshold:");
-                                            let mut threshold =
-                                                cfg.subtitle.preprocess.threshold as i32;
-                                            if ui
-                                                .add(eframe::egui::Slider::new(
-                                                    &mut threshold,
-                                                    0..=255,
-                                                ))
-                                                .changed()
-                                            {
-                                                cfg.subtitle.preprocess.threshold = threshold as u8;
-                                            }
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Blur:");
-                                            ui.add(
-                                                eframe::egui::Slider::new(
-                                                    &mut cfg.subtitle.preprocess.blur,
-                                                    0.0..=5.0,
-                                                )
-                                                .suffix("σ"),
-                                            );
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Dilatação:");
-                                            let mut d = cfg.subtitle.preprocess.dilate as i32;
-                                            if ui
-                                                .add(
-                                                    eframe::egui::Slider::new(&mut d, 0..=5)
-                                                        .suffix("px"),
-                                                )
-                                                .changed()
-                                            {
-                                                cfg.subtitle.preprocess.dilate = d as u8;
-                                            }
-                                        });
-
-                                        ui.horizontal(|ui| {
-                                            ui.label("Erosão:");
-                                            let mut e = cfg.subtitle.preprocess.erode as i32;
-                                            if ui
-                                                .add(
-                                                    eframe::egui::Slider::new(&mut e, 0..=5)
-                                                        .suffix("px"),
-                                                )
-                                                .changed()
-                                            {
-                                                cfg.subtitle.preprocess.erode = e as u8;
-                                            }
-                                        });
-
-                                        ui.separator();
-                                        ui.horizontal(|ui| {
-                                            ui.label("Edge Detection:");
-                                            let mut ed = cfg.subtitle.preprocess.edge_detection as i32;
-                                            if ui.add(eframe::egui::Slider::new(&mut ed, 0..=150).suffix("")).changed() {
-                                                cfg.subtitle.preprocess.edge_detection = ed as u8;
-                                            }
-                                        });
-                                        ui.label("   0=off, 30-80=recomendado");
-
-                                        ui.checkbox(
-                                            &mut cfg.subtitle.preprocess.save_debug_image,
-                                            "Salvar debug",
-                                        );
-                                    });
-                                }
-                            }
-                            4 => {
-                                // === ABA ATALHOS ===
-                                ui.heading("⌨️ Teclas de Atalho");
-                                ui.add_space(10.0);
-
-                                ui.label("Selecione a tecla para cada ação:");
-                                ui.add_space(10.0);
-
-                                // Lista de teclas disponíveis
-                                let teclas_disponiveis = vec![
-                                    "Numpad0",
-                                    "Numpad1",
-                                    "Numpad2",
-                                    "Numpad3",
-                                    "Numpad4",
-                                    "Numpad5",
-                                    "Numpad6",
-                                    "Numpad7",
-                                    "Numpad8",
-                                    "Numpad9",
-                                    "NumpadAdd",
-                                    "NumpadSubtract",
-                                    "NumpadMultiply",
-                                    "NumpadDivide",
-                                    "NumpadDecimal",
-                                    "F1",
-                                    "F2",
-                                    "F3",
-                                    "F4",
-                                    "F5",
-                                    "F6",
-                                    "F7",
-                                    "F8",
-                                    "F9",
-                                    "F10",
-                                    "F11",
-                                    "F12",
-                                ];
-
-                                ui.group(|ui| {
-                                    ui.label("🖥️ Tela Cheia:");
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Capturar e traduzir:");
-                                        eframe::egui::ComboBox::from_id_source("hotkey_fullscreen")
-                                            .selected_text(&cfg.hotkeys.translate_fullscreen)
-                                            .show_ui(ui, |ui: &mut eframe::egui::Ui| {
-                                                for tecla in &teclas_disponiveis {
-                                                    ui.selectable_value(
-                                                        &mut cfg.hotkeys.translate_fullscreen,
-                                                        tecla.to_string(),
-                                                        *tecla,
-                                                    );
-                                                }
-                                            });
-                                    });
-                                });
-
-                                ui.add_space(10.0);
-
-                                ui.group(|ui| {
-                                    ui.label("🎯 Captura em Área:");
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Selecionar área:");
-                                        eframe::egui::ComboBox::from_id_source(
-                                            "hotkey_select_region",
-                                        )
-                                        .selected_text(&cfg.hotkeys.select_region)
-                                        .show_ui(
-                                            ui,
-                                            |ui: &mut eframe::egui::Ui| {
-                                                for tecla in &teclas_disponiveis {
-                                                    ui.selectable_value(
-                                                        &mut cfg.hotkeys.select_region,
-                                                        tecla.to_string(),
-                                                        *tecla,
-                                                    );
-                                                }
-                                            },
-                                        );
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Traduzir área:");
-                                        eframe::egui::ComboBox::from_id_source(
-                                            "hotkey_translate_region",
-                                        )
-                                        .selected_text(&cfg.hotkeys.translate_region)
-                                        .show_ui(
-                                            ui,
-                                            |ui: &mut eframe::egui::Ui| {
-                                                for tecla in &teclas_disponiveis {
-                                                    ui.selectable_value(
-                                                        &mut cfg.hotkeys.translate_region,
-                                                        tecla.to_string(),
-                                                        *tecla,
-                                                    );
-                                                }
-                                            },
-                                        );
-                                    });
-                                });
-
-                                ui.add_space(10.0);
-
-                                ui.group(|ui| {
-                                    ui.label("📺 Modo Legenda:");
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Selecionar área:");
-                                        eframe::egui::ComboBox::from_id_source(
-                                            "hotkey_select_subtitle",
-                                        )
-                                        .selected_text(&cfg.hotkeys.select_subtitle_region)
-                                        .show_ui(
-                                            ui,
-                                            |ui: &mut eframe::egui::Ui| {
-                                                for tecla in &teclas_disponiveis {
-                                                    ui.selectable_value(
-                                                        &mut cfg.hotkeys.select_subtitle_region,
-                                                        tecla.to_string(),
-                                                        *tecla,
-                                                    );
-                                                }
-                                            },
-                                        );
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Ligar/Desligar:");
-                                        eframe::egui::ComboBox::from_id_source(
-                                            "hotkey_toggle_subtitle",
-                                        )
-                                        .selected_text(&cfg.hotkeys.toggle_subtitle_mode)
-                                        .show_ui(
-                                            ui,
-                                            |ui: &mut eframe::egui::Ui| {
-                                                for tecla in &teclas_disponiveis {
-                                                    ui.selectable_value(
-                                                        &mut cfg.hotkeys.toggle_subtitle_mode,
-                                                        tecla.to_string(),
-                                                        *tecla,
-                                                    );
-                                                }
-                                            },
-                                        );
-                                    });
-                                });
-
-                                ui.add_space(10.0);
-
-                                ui.group(|ui| {
-                                    ui.label("🔧 Outros:");
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Esconder tradução:");
-                                        eframe::egui::ComboBox::from_id_source("hotkey_hide")
-                                            .selected_text(&cfg.hotkeys.hide_translation)
-                                            .show_ui(ui, |ui: &mut eframe::egui::Ui| {
-                                                for tecla in &teclas_disponiveis {
-                                                    ui.selectable_value(
-                                                        &mut cfg.hotkeys.hide_translation,
-                                                        tecla.to_string(),
-                                                        *tecla,
-                                                    );
-                                                }
-                                            });
-                                    });
-                                });
-
-                                ui.add_space(15.0);
-                                ui.separator();
-                                ui.add_space(5.0);
-                                ui.label("⚠️ Reinicie o programa após alterar os atalhos.");
-                            }
-                            5 => {
-                                // === ABA SERVIÇOS ===
-                                ui.heading("🌐 Serviços de Tradução e Voz");
-                                ui.add_space(10.0);
-
-                                // --- Provedor de tradução ---
-                                ui.group(|ui| {
-                                    ui.label("🔤 Provedor de Tradução:");
-                                    ui.add_space(5.0);
-
-                                    let providers = vec!["google", "deepl", "libretranslate", "openai"];
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Provedor ativo:");
-                                        eframe::egui::ComboBox::from_id_source(
-                                            "translation_provider",
-                                        )
-                                        .selected_text(&cfg.translation.provider)
-                                        .show_ui(
-                                            ui,
-                                            |ui| {
-                                                for p in &providers {
-                                                    ui.selectable_value(
-                                                        &mut cfg.translation.provider,
-                                                        p.to_string(),
-                                                        *p,
-                                                    );
-                                                }
-                                            },
-                                        );
-                                    });
-
-                                    ui.add_space(5.0);
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Idioma origem:");
-                                        ui.text_edit_singleline(
-                                            &mut cfg.translation.source_language,
-                                        );
-                                    });
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Idioma destino:");
-                                        ui.text_edit_singleline(
-                                            &mut cfg.translation.target_language,
-                                        );
-                                    });
-                                });
-
-                                ui.add_space(10.0);
-
-                                // --- DeepL ---
-                                ui.group(|ui| {
-                                    ui.label("🔵 DeepL:");
-                                    ui.add_space(5.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label("   API Key:");
-                                        ui.add(
-                                            eframe::egui::TextEdit::singleline(
-                                                &mut cfg.translation.deepl_api_key,
-                                            )
-                                            .password(true)
-                                            .desired_width(300.0),
-                                        );
-                                    });
-                                    if cfg.translation.deepl_api_key.is_empty() {
-                                        ui.label("   ⚠️ Necessário para usar DeepL");
-                                    } else {
-                                        ui.label("   ✅ Configurado");
-                                    }
-                                });
-
-                                ui.add_space(10.0);
-
-                                // --- LibreTranslate ---
-                                ui.group(|ui| {
-                                    ui.label("🟢 LibreTranslate:");
-                                    ui.add_space(5.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label("   URL:");
-                                        ui.text_edit_singleline(
-                                            &mut cfg.translation.libretranslate_url,
-                                        );
-                                    });
-                                    ui.label("   ℹ️ Gratuito e offline (requer servidor local)");
-                                });
-
-                                ui.add_space(10.0);
-
-                                // --- Google ---
-                                ui.group(|ui| {
-                                    ui.label("🔴 Google Translate:");
-                                    ui.label("   ℹ️ Sem API key necessária (usa API não oficial)");
-                                });
-
-                                ui.add_space(15.0);
-                                ui.separator();
-                                ui.add_space(10.0);
-
-                                // --- ElevenLabs TTS ---
-                                ui.group(|ui| {
-                                    ui.label("🔊 ElevenLabs (Text-to-Speech):");
-                                    ui.add_space(5.0);
-
-                                    ui.checkbox(&mut cfg.display.tts_enabled, "   TTS ativado");
-
-                                    ui.add_space(5.0);
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   API Key:");
-                                        ui.add(
-                                            eframe::egui::TextEdit::singleline(
-                                                &mut cfg.translation.elevenlabs_api_key,
-                                            )
-                                            .password(true)
-                                            .desired_width(300.0),
-                                        );
-                                    });
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Voice ID:");
-                                        ui.text_edit_singleline(
-                                            &mut cfg.translation.elevenlabs_voice_id,
-                                        );
-                                    });
-
-                                    if cfg.translation.elevenlabs_api_key.is_empty() {
-                                        ui.label(
-                                            "   ⚠️ Configure API Key e Voice ID para usar TTS",
-                                        );
-                                    } else {
-                                        ui.label("   ✅ Configurado");
-                                    }
-                                });
-                            }
-                            6 => {
-                                // === ABA HISTÓRICO ===
-                                ui.heading("📜 Histórico de Legendas");
-                                ui.add_space(10.0);
-
-                                // Botão de limpar
-                                if ui.button("🗑️ Limpar histórico").clicked() {
-                                    self.state.subtitle_state.reset();
-                                }
-
-                                ui.add_space(10.0);
-                                ui.separator();
-                                ui.add_space(5.0);
-
-                                // Pega o histórico
-                                let history = self.state.subtitle_state.get_subtitle_history();
-
-                                if history.is_empty() {
-                                    ui.label("Nenhuma legenda traduzida ainda.");
-                                    ui.label("Ative o modo legenda (Numpad 0) para começar.");
-                                } else {
-                                    ui.label(format!("{} legendas no histórico:", history.len()));
-                                    ui.add_space(5.0);
-
-                                    // Lista as legendas (mais recente em cima)
-                                    for (i, entry) in history.iter().rev().enumerate() {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                eframe::egui::RichText::new(
-                                                    format!("{}.", i + 1)
-                                                ).weak()
-                                            );
-                                            ui.label(&entry.translated);
-                                        });
-
-                                        // Separador sutil entre itens
-                                        if i < history.len() - 1 {
-                                            ui.separator();
-                                        }
-                                    }
-                                }
-                            }
-                            7 => {
-                                // === ABA OPENAI ===
-                                ui.heading("🤖 OpenAI - Tradução com IA");
-                                ui.add_space(10.0);
-
-                                // --- API Key ---
-                                ui.group(|ui| {
-                                    ui.label("🔑 Autenticação:");
-                                    ui.add_space(5.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label("   API Key:");
-                                        ui.add(
-                                            eframe::egui::TextEdit::singleline(
-                                                &mut cfg.openai.api_key,
-                                            )
-                                            .password(true)
-                                            .desired_width(350.0),
-                                        );
-                                    });
-                                    if cfg.openai.api_key.is_empty() {
-                                        ui.label("   ⚠️ Necessário para usar OpenAI como provedor");
-                                    } else {
-                                        ui.label("   ✅ Configurado");
-                                    }
-                                });
-
-                                ui.add_space(10.0);
-
-                                // --- Modelo e parâmetros ---
-                                ui.group(|ui| {
-                                    ui.label("⚙️ Modelo e Parâmetros:");
-                                    ui.add_space(5.0);
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Modelo:");
-                                        let models = vec![
-                                            "gpt-4o-mini",
-                                            "gpt-4o",
-                                            "gpt-4-turbo",
-                                            "gpt-3.5-turbo",
-                                        ];
-                                        eframe::egui::ComboBox::from_id_source("openai_model")
-                                            .selected_text(&cfg.openai.model)
-                                            .show_ui(ui, |ui| {
-                                                for m in &models {
-                                                    ui.selectable_value(
-                                                        &mut cfg.openai.model,
-                                                        m.to_string(),
-                                                        *m,
-                                                    );
-                                                }
-                                            });
-                                    });
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Temperature:");
-                                        ui.add(
-                                            eframe::egui::Slider::new(
-                                                &mut cfg.openai.temperature,
-                                                0.0..=2.0,
-                                            )
-                                            .step_by(0.1),
-                                        );
-                                    });
-                                    ui.label("      0.0 = literal, 0.3 = recomendado, 1.0+ = criativo");
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Max tokens:");
-                                        let mut tokens = cfg.openai.max_tokens as i32;
-                                        if ui
-                                            .add(eframe::egui::Slider::new(&mut tokens, 128..=4096))
-                                            .changed()
-                                        {
-                                            cfg.openai.max_tokens = tokens as u32;
-                                        }
-                                    });
-                                });
-
-                                ui.add_space(10.0);
-
-                                // --- Controle de custo ---
-                                ui.group(|ui| {
-                                    ui.label("💰 Controle de Custo:");
-                                    ui.add_space(5.0);
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Limite de requests/sessão:");
-                                        let mut limit = cfg.openai.max_requests_per_session as i32;
-                                        if ui
-                                            .add(
-                                                eframe::egui::Slider::new(&mut limit, 0..=2000)
-                                                    .suffix(" req"),
-                                            )
-                                            .changed()
-                                        {
-                                            cfg.openai.max_requests_per_session = limit as u32;
-                                        }
-                                    });
-                                    ui.label("      0 = ilimitado");
-
-                                    ui.add_space(5.0);
-                                    let count = *self.state.openai_request_count.lock().unwrap();
-                                    let limit = cfg.openai.max_requests_per_session;
-                                    let status_text = if limit == 0 {
-                                        format!("   📊 Requests nesta sessão: {} (sem limite)", count)
-                                    } else {
-                                        format!("   📊 Requests nesta sessão: {} / {}", count, limit)
-                                    };
-                                    ui.label(status_text);
-
-                                    if count > 0 {
-                                        if ui.button("🔄 Resetar contador").clicked() {
-                                            *self.state.openai_request_count.lock().unwrap() = 0;
-                                        }
-                                    }
-
-                                    ui.add_space(5.0);
-
-                                    ui.horizontal(|ui| {
-                                        ui.label("   Fallback quando atingir limite:");
-                                        let fallbacks = vec!["google", "deepl", "libretranslate"];
-                                        eframe::egui::ComboBox::from_id_source("openai_fallback")
-                                            .selected_text(&cfg.openai.fallback_provider)
-                                            .show_ui(ui, |ui| {
-                                                for f in &fallbacks {
-                                                    ui.selectable_value(
-                                                        &mut cfg.openai.fallback_provider,
-                                                        f.to_string(),
-                                                        *f,
-                                                    );
-                                                }
-                                            });
-                                    });
-                                });
-
-                                ui.add_space(10.0);
-
-                                // --- System Prompt ---
-                                ui.group(|ui| {
-                                    ui.label("📝 System Prompt (instrução para a IA):");
-                                    ui.add_space(5.0);
-                                    ui.label("   Define o tom, estilo e regras da tradução:");
-                                    ui.add_space(5.0);
-
-                                    eframe::egui::ScrollArea::vertical()
-                                        .max_height(250.0)
-                                        .show(ui, |ui| {
-                                            ui.add(
-                                                eframe::egui::TextEdit::multiline(
-                                                    &mut cfg.openai.system_prompt,
-                                                )
-                                                .desired_width(f32::INFINITY)
-                                                .desired_rows(12)
-                                                .font(eframe::egui::TextStyle::Monospace),
-                                            );
-                                        });
-
-                                    ui.add_space(5.0);
-                                    if ui.button("🔄 Restaurar prompt padrão").clicked() {
-                                        cfg.openai.system_prompt =
-                                            crate::config::default_openai_system_prompt();
-                                    }
-                                });
-
-                                ui.add_space(10.0);
-
-                                // --- Dica de uso ---
-                                ui.group(|ui| {
-                                    ui.label("ℹ️ Como usar:");
-                                    ui.label("   1. Cole sua API key da OpenAI acima");
-                                    ui.label("   2. Na aba Serviços, selecione 'openai' como provedor");
-                                    ui.label("   3. Ajuste o prompt conforme o jogo que está traduzindo");
-                                    ui.label("   4. Salve as configurações");
-                                });
-                            }
-                            _ => {}
-                        }
-                    });
-                }
-
-                ui.add_space(10.0);
-                ui.separator();
-
-                // Botões de ação
+                // Botões de ação (ANTES do scroll pra ficar sempre visível)
                 ui.horizontal(|ui| {
-                    if ui.button("💾 Salvar").clicked() {
+                    if ui.button("Salvar").clicked() {
                         if let Some(ref cfg) = self.settings_config {
-                            // Salva no arquivo
                             match cfg.save() {
                                 Ok(_) => {
-                                    // Atualiza as configurações em memória
                                     let mut config = self.state.config.lock().unwrap();
                                     config.app_config = cfg.clone();
                                     self.settings_status =
@@ -1328,28 +339,24 @@ impl eframe::App for OverlayApp {
                                     info!("💾 Configurações salvas!");
                                 }
                                 Err(e) => {
-                                    self.settings_status = Some((
-                                        format!("❌ Erro: {}", e),
-                                        std::time::Instant::now(),
-                                    ));
-                                    error!("❌ Erro ao salvar: {}", e);
+                                    self.settings_status =
+                                        Some((format!("Erro: {}", e), std::time::Instant::now()));
+                                    error!("Erro ao salvar: {}", e);
                                 }
                             }
                         }
                     }
 
-                    if ui.button("🔄 Recarregar").clicked() {
+                    if ui.button("Recarregar").clicked() {
                         match config::AppConfig::load() {
                             Ok(cfg) => {
                                 self.settings_config = Some(cfg);
-                                self.settings_status = Some((
-                                    "🔄 Recarregado!".to_string(),
-                                    std::time::Instant::now(),
-                                ));
+                                self.settings_status =
+                                    Some(("Recarregado!".to_string(), std::time::Instant::now()));
                             }
                             Err(e) => {
                                 self.settings_status =
-                                    Some((format!("❌ Erro: {}", e), std::time::Instant::now()));
+                                    Some((format!("Erro: {}", e), std::time::Instant::now()));
                             }
                         }
                     }
@@ -1361,6 +368,22 @@ impl eframe::App for OverlayApp {
                         }
                     }
                 });
+
+                ui.separator();
+                ui.add_space(10.0);
+
+                // Conteúdo das abas (delegado ao módulo settings_ui)
+                if let Some(ref mut cfg) = self.settings_config {
+                    eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+                        settings_ui::render_tab(
+                            ui,
+                            self.settings_tab,
+                            cfg,
+                            &self.state.subtitle_state,
+                            &self.state.openai_request_count,
+                        );
+                    });
+                }
             });
 
             ctx.request_repaint();
@@ -1945,7 +968,7 @@ fn start_hotkey_thread(state: AppState) {
 
                         let state_clone = state.clone();
                         thread::spawn(move || {
-                            if let Err(e) = process_translation_blocking(
+                            if let Err(e) = processing::process_translation_blocking(
                                 &state_clone,
                                 hotkey::HotkeyAction::TranslateFullScreen,
                             ) {
@@ -1962,7 +985,7 @@ fn start_hotkey_thread(state: AppState) {
 
                         let state_clone = state.clone();
                         thread::spawn(move || {
-                            if let Err(e) = process_translation_blocking(
+                            if let Err(e) = processing::process_translation_blocking(
                                 &state_clone,
                                 hotkey::HotkeyAction::TranslateRegion,
                             ) {
@@ -2070,607 +1093,6 @@ fn start_config_watcher(state: AppState) {
 }
 
 // ============================================================================
-// PROCESSAMENTO DE TRADUÇÃO
-// ============================================================================
-
-fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyAction) -> Result<()> {
-    // === ESCONDE O OVERLAY ANTES DE CAPTURAR ===
-    {
-        let mut hidden = state.overlay_hidden.lock().unwrap();
-        *hidden = true;
-    }
-    thread::sleep(Duration::from_millis(100));
-    // Verifica se usa modo memória (mais rápido) ou arquivo (debug)
-    let use_memory = state
-        .config
-        .lock()
-        .unwrap()
-        .app_config
-        .display
-        .use_memory_capture;
-
-    info!("📸 [1/4] Capturando tela...");
-
-    // Pega configurações de pré-processamento
-    let preprocess_config = {
-        let config = state.config.lock().unwrap();
-        config.app_config.display.preprocess.clone()
-    };
-
-    // No modo tela cheia, força upscale 1.0 (desativado)
-    // porque a imagem já é grande e upscale deixaria muito lento
-    let effective_upscale = if action == hotkey::HotkeyAction::TranslateFullScreen {
-        1.0
-    } else {
-        preprocess_config.upscale
-    };
-
-    // OCR result vai ser preenchido de acordo com o modo
-    let mut ocr_result = if use_memory {
-        // ====================================================================
-        // MODO MEMÓRIA (RÁPIDO) - Não salva arquivo em disco
-        // ====================================================================
-        let image = match action {
-            hotkey::HotkeyAction::TranslateRegion => {
-                let (x, y, w, h) = {
-                    let config = state.config.lock().unwrap();
-                    (
-                        config.region_x,
-                        config.region_y,
-                        config.region_width,
-                        config.region_height,
-                    )
-                };
-                info!("   🎯 Região: {}x{} em ({}, {}) [MEMÓRIA]", w, h, x, y);
-                screenshot::capture_region_to_memory(x, y, w, h)?
-            }
-            hotkey::HotkeyAction::TranslateFullScreen => {
-                info!("   🖥️  Tela inteira [MEMÓRIA]");
-                screenshot::capture_screen_to_memory()?
-            }
-            hotkey::HotkeyAction::SelectRegion
-            | hotkey::HotkeyAction::SelectSubtitleRegion
-            | hotkey::HotkeyAction::ToggleSubtitleMode
-            | hotkey::HotkeyAction::HideTranslation
-            | hotkey::HotkeyAction::OpenSettings => {
-                anyhow::bail!("Esta ação não deveria chamar process_translation")
-            }
-        };
-
-        // Aplica pré-processamento se habilitado
-        let processed_image = if preprocess_config.enabled {
-            screenshot::preprocess_image(
-                &image,
-                preprocess_config.grayscale,
-                preprocess_config.invert,
-                preprocess_config.contrast,
-                preprocess_config.threshold,
-                preprocess_config.save_debug_image,
-                effective_upscale,
-                preprocess_config.blur, // Blur gaussiano // Usa effective_upscale (1.0 para tela cheia)
-                preprocess_config.dilate,
-                preprocess_config.erode,
-                preprocess_config.edge_detection,
-            )
-        } else {
-            image
-        };
-
-        info!("✅ Screenshot capturada em memória!");
-        info!("🔍 [2/4] Executando OCR...");
-        ocr::extract_text_from_memory(&processed_image)?
-    } else {
-        // ====================================================================
-        // MODO ARQUIVO (DEBUG) - Salva screenshot.png em disco
-        // ====================================================================
-        let screenshot_path = PathBuf::from("screenshot.png");
-
-        match action {
-            hotkey::HotkeyAction::TranslateRegion => {
-                let (x, y, w, h) = {
-                    let config = state.config.lock().unwrap();
-                    (
-                        config.region_x,
-                        config.region_y,
-                        config.region_width,
-                        config.region_height,
-                    )
-                };
-                info!("   🎯 Região: {}x{} em ({}, {}) [ARQUIVO]", w, h, x, y);
-                screenshot::capture_region(&screenshot_path, x, y, w, h)?;
-            }
-            hotkey::HotkeyAction::TranslateFullScreen => {
-                info!("   🖥️  Tela inteira [ARQUIVO]");
-                screenshot::capture_screen(&screenshot_path)?;
-            }
-            hotkey::HotkeyAction::SelectRegion => {
-                anyhow::bail!("SelectRegion não deveria chamar process_translation")
-            }
-            hotkey::HotkeyAction::SelectSubtitleRegion
-            | hotkey::HotkeyAction::ToggleSubtitleMode
-            | hotkey::HotkeyAction::HideTranslation
-            | hotkey::HotkeyAction::OpenSettings => {
-                unreachable!("Esta ação não deveria chamar process_translation")
-            }
-        };
-
-        info!("✅ Screenshot capturada!");
-        info!("🔍 [2/4] Executando OCR...");
-        ocr::extract_text_with_positions(&screenshot_path)?
-    };
-
-    if ocr_result.lines.is_empty() {
-        info!("⚠️  Nenhum texto detectado!");
-        return Ok(());
-    }
-
-    info!("   📍 {} linhas detectadas", ocr_result.lines.len());
-
-    // Se upscale foi aplicado, as coordenadas do OCR estão multiplicadas
-    // pelo fator de escala. Precisamos corrigir dividindo de volta.
-    // Exemplo: upscale 2.0 → OCR detecta texto em (400, 600)
-    //          mas na tela real o texto está em (200, 300)
-    // Upscale só é aplicado no modo região/legendas.
-    // No modo tela cheia a imagem já é grande demais — upscale deixaria muito lento.
-    let upscale_factor = if preprocess_config.enabled
-        && preprocess_config.upscale > 1.0
-        && action != hotkey::HotkeyAction::TranslateFullScreen
-    {
-        preprocess_config.upscale as f64
-    } else {
-        1.0
-    };
-
-    if upscale_factor > 1.0 {
-        info!(
-            "   📐 Corrigindo coordenadas (÷{:.1}x upscale)",
-            upscale_factor
-        );
-        for line in &mut ocr_result.lines {
-            line.x /= upscale_factor;
-            line.y /= upscale_factor;
-            line.width /= upscale_factor;
-            line.height /= upscale_factor;
-        }
-    }
-
-    // Extrai textos para traduzir e limpa erros de OCR
-    let texts_to_translate: Vec<String> = ocr_result
-        .lines
-        .iter()
-        .map(|line| ocr::clean_ocr_text(&line.text))
-        .collect();
-
-    // Tradução em batch
-    info!("🌐 [3/4] Traduzindo {} textos...", texts_to_translate.len());
-
-    let (api_key, provider, source_lang, target_lang, libre_url, openai_config) = {
-        let config = state.config.lock().unwrap();
-        (
-            config.app_config.translation.deepl_api_key.clone(),
-            config.app_config.translation.provider.clone(),
-            config.app_config.translation.source_language.clone(),
-            config.app_config.translation.target_language.clone(),
-            config.app_config.translation.libretranslate_url.clone(),
-            config.app_config.openai.clone(),
-        )
-    };
-
-    // Verifica quais textos já estão no cache
-    let (cached, not_cached) = state.translation_cache.get_batch(
-        &provider,
-        &source_lang,
-        &target_lang,
-        &texts_to_translate,
-    );
-
-    info!(
-        "   📦 Cache: {} encontrados, {} novos",
-        cached.len(),
-        not_cached.len()
-    );
-
-    // Prepara vetor de resultados
-    let mut translated_texts: Vec<String> = vec![String::new(); texts_to_translate.len()];
-
-    // Preenche com os que estavam no cache
-    for (index, translated) in &cached {
-        translated_texts[*index] = translated.clone();
-    }
-
-    // Traduz apenas os que não estavam no cache
-    if !not_cached.is_empty() {
-        let texts_to_api: Vec<String> = not_cached.iter().map(|(_, t)| t.clone()).collect();
-
-        // Verifica se OpenAI atingiu limite de requests na sessão
-        let effective_provider = if provider == "openai"
-            && openai_config.max_requests_per_session > 0
-        {
-            let count = *state.openai_request_count.lock().unwrap();
-            if count >= openai_config.max_requests_per_session {
-                info!(
-                    "⚠️  OpenAI atingiu limite ({}/{}), usando fallback: {}",
-                    count, openai_config.max_requests_per_session, openai_config.fallback_provider
-                );
-                openai_config.fallback_provider.clone()
-            } else {
-                provider.clone()
-            }
-        } else {
-            provider.clone()
-        };
-
-        let runtime = tokio::runtime::Runtime::new()?;
-        let new_translations = runtime.block_on(async {
-            translator::translate_batch_with_provider(
-                &texts_to_api,
-                &effective_provider,
-                &api_key,
-                &source_lang,
-                &target_lang,
-                Some(&libre_url),
-                Some(&openai_config),
-            )
-            .await
-        })?;
-
-        // Incrementa contador se usou OpenAI
-        if effective_provider == "openai" {
-            *state.openai_request_count.lock().unwrap() += 1;
-            info!(
-                "📊 OpenAI requests: {}/{}",
-                *state.openai_request_count.lock().unwrap(),
-                if openai_config.max_requests_per_session == 0 {
-                    "∞".to_string()
-                } else {
-                    openai_config.max_requests_per_session.to_string()
-                }
-            );
-        }
-
-        // Preenche os resultados e adiciona ao cache
-        let mut cache_pairs: Vec<(String, String)> = Vec::new();
-
-        for (i, (original_index, original_text)) in not_cached.iter().enumerate() {
-            if let Some(translated) = new_translations.get(i) {
-                translated_texts[*original_index] = translated.clone();
-                cache_pairs.push((original_text.clone(), translated.clone()));
-            }
-        }
-
-        // Salva no cache
-        state
-            .translation_cache
-            .set_batch(&provider, &source_lang, &target_lang, &cache_pairs);
-
-        // Salva cache em disco periodicamente
-        let _ = state.translation_cache.save_to_disk();
-    }
-
-    let (cache_total, cache_size) = state.translation_cache.stats();
-    info!(
-        "✅ Tradução concluída! (Cache: {} entradas, {} bytes)",
-        cache_total, cache_size
-    );
-
-    // Monta lista com posições
-    // Calcula offset baseado no modo (região ou tela cheia)79
-    let (offset_x, offset_y) = match action {
-        hotkey::HotkeyAction::TranslateRegion => {
-            let config = state.config.lock().unwrap();
-            (config.region_x as f64, config.region_y as f64)
-        }
-        hotkey::HotkeyAction::TranslateFullScreen => {
-            (0.0, 0.0) // Tela cheia: coordenadas já são absolutas
-        }
-        _ => (0.0, 0.0),
-    };
-
-    let translated_items: Vec<TranslatedText> = ocr_result
-        .lines
-        .iter()
-        .zip(translated_texts.iter())
-        .map(|(detected, translated)| TranslatedText {
-            original: ocr::clean_ocr_text(&detected.text),
-            translated: translated.clone(),
-            screen_x: detected.x + offset_x,
-            screen_y: detected.y + offset_y,
-            width: detected.width,
-            height: detected.height,
-        })
-        .collect();
-
-    // Define a região de captura (para posicionar o overlay)
-    let capture_region = match action {
-        hotkey::HotkeyAction::TranslateRegion => {
-            let config = state.config.lock().unwrap();
-            CaptureRegion {
-                x: config.region_x,
-                y: config.region_y,
-                width: config.region_width,
-                height: config.region_height,
-            }
-        }
-        hotkey::HotkeyAction::TranslateFullScreen => {
-            // Tela inteira: usa a região do config para o overlay
-            let config = state.config.lock().unwrap();
-            CaptureRegion {
-                x: config.app_config.overlay.x,
-                y: config.app_config.overlay.y,
-                width: config.app_config.overlay.width,
-                height: config.app_config.overlay.height,
-            }
-        }
-        _ => unreachable!(),
-    };
-
-    // Envia para o overlay
-    info!("🖼️  [4/4] Exibindo traduções...");
-
-    // Define o modo baseado na ação
-    let capture_mode = match action {
-        hotkey::HotkeyAction::TranslateFullScreen => CaptureMode::FullScreen,
-        hotkey::HotkeyAction::TranslateRegion => CaptureMode::Region,
-        _ => CaptureMode::Region,
-    };
-
-    state.set_translations(translated_items, capture_region, capture_mode);
-
-    // ========================================================================
-    // TTS - Fala a tradução (se configurado)
-    // ========================================================================
-    let (elevenlabs_key, elevenlabs_voice, tts_enabled) = {
-        let config = state.config.lock().unwrap();
-        // Pega as keys do app_config (config.json) pra ter hot reload
-        let key = config.app_config.translation.elevenlabs_api_key.clone();
-        let voice = config.app_config.translation.elevenlabs_voice_id.clone();
-        (
-            key.clone(),
-            voice.clone(),
-            config.app_config.display.tts_enabled && !key.is_empty() && !voice.is_empty(),
-        )
-    };
-
-    if tts_enabled {
-        info!("🔊 [5/5] Sintetizando voz...");
-
-        // Junta as traduções para falar (com espaço, não ponto)
-        // Isso mantém o texto contínuo como um parágrafo natural
-        let text_to_speak: String = translated_texts
-            .iter()
-            .filter(|t| !t.is_empty())
-            .cloned()
-            .collect::<Vec<String>>()
-            .join(" ");
-
-        if !text_to_speak.is_empty() {
-            // Executa TTS em thread separada para não bloquear
-            let key = elevenlabs_key.clone();
-            let voice = elevenlabs_voice.clone();
-
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    if let Err(e) = tts::speak(&text_to_speak, &key, &voice).await {
-                        error!("❌ Erro no TTS: {}", e);
-                    }
-                });
-            });
-        }
-    } else {
-        info!("🔇 [5/5] TTS desabilitado (configure ELEVENLABS_API_KEY e ELEVENLABS_VOICE_ID no .env)");
-    }
-
-    info!("✅ Completo!");
-    info!("");
-
-    // === MOSTRA O OVERLAY DE NOVO ===
-    {
-        let mut hidden = state.overlay_hidden.lock().unwrap();
-        *hidden = false;
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// THREAD DE LEGENDAS (captura contínua)
-// ============================================================================
-
-fn start_subtitle_thread(state: AppState) {
-    thread::spawn(move || {
-        info!("📺 Thread de legendas iniciada (aguardando ativação)");
-
-        loop {
-            // Timeout em segundos (sem texto = esconde legendas)
-            // Pega do config (max_display_secs)
-            let timeout_secs: u64 = {
-                let config = state.config.lock().unwrap();
-                config.app_config.subtitle.max_display_secs
-            };
-
-            // Verifica se o modo legenda está ativo
-            let is_active = *state.subtitle_mode_active.lock().unwrap();
-
-            if is_active {
-                // Verifica timeout (sem texto por X segundos)
-                if state.subtitle_state.has_subtitles()
-                    && state.subtitle_state.is_timed_out(timeout_secs)
-                {
-                    state.subtitle_state.reset();
-                }
-
-                // Pega configurações da região de legenda
-                let (region_x, region_y, region_w, region_h, interval_ms) = {
-                    let config = state.config.lock().unwrap();
-                    (
-                        config.app_config.subtitle.region.x,
-                        config.app_config.subtitle.region.y,
-                        config.app_config.subtitle.region.width,
-                        config.app_config.subtitle.region.height,
-                        config.app_config.subtitle.capture_interval_ms,
-                    )
-                };
-
-                // Pega configurações de pré-processamento
-                let preprocess_config = {
-                    let config = state.config.lock().unwrap();
-                    config.app_config.subtitle.preprocess.clone()
-                };
-
-                // Captura a região da legenda
-                match screenshot::capture_region_to_memory(region_x, region_y, region_w, region_h) {
-                    Ok(image) => {
-                        // Aplica pré-processamento se habilitado
-                        // No modo tela cheia, força upscale 1.0 (desativado)
-                        // porque a imagem já é grande e upscale deixaria muito lento
-                        let processed_image = if preprocess_config.enabled {
-                            screenshot::preprocess_image(
-                                &image,
-                                preprocess_config.grayscale,
-                                preprocess_config.invert,
-                                preprocess_config.contrast,
-                                preprocess_config.threshold,
-                                preprocess_config.save_debug_image,
-                                preprocess_config.upscale, // Legendas sempre usam upscale do config
-                                preprocess_config.blur,    // Blur gaussiano
-                                preprocess_config.dilate,
-                                preprocess_config.erode,
-                                preprocess_config.edge_detection,
-                            )
-                        } else {
-                            image
-                        };
-
-                        // Executa OCR
-                        match ocr::extract_text_from_memory(&processed_image) {
-                            Ok(ocr_result) => {
-                                // Junta todo o texto detectado e limpa erros de OCR
-                                let full_text = ocr::clean_ocr_text(&ocr_result.full_text);
-
-                                // Se detectou texto, atualiza o tempo
-                                if full_text.len() >= 3 {
-                                    state.subtitle_state.update_detection_time();
-                                }
-
-                                // Processa o texto detectado
-                                if let Some(text_to_translate) =
-                                    state.subtitle_state.process_detected_text(&full_text)
-                                {
-                                    // Texto mudou! Traduz
-                                    let state_clone = state.clone();
-
-                                    thread::spawn(move || {
-                                        if let Err(e) = process_subtitle_translation(
-                                            &state_clone,
-                                            &text_to_translate,
-                                        ) {
-                                            error!("❌ Erro ao traduzir legenda: {}", e);
-                                        }
-                                    });
-                                }
-                            }
-                            Err(e) => {
-                                // OCR falhou silenciosamente (pode ser região sem texto)
-                                trace!("OCR falhou: {}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("❌ Erro ao capturar região de legenda: {}", e);
-                    }
-                }
-
-                // Aguarda o intervalo configurado
-                thread::sleep(Duration::from_millis(interval_ms));
-            } else {
-                // Modo inativo - aguarda um pouco antes de verificar novamente
-                thread::sleep(Duration::from_millis(500));
-            }
-        }
-    });
-}
-
-/// Processa a tradução de uma legenda
-fn process_subtitle_translation(state: &AppState, text: &str) -> anyhow::Result<()> {
-    info!("📺 Traduzindo legenda: \"{}\"", text);
-
-    // Pega configurações de tradução (do app_config pra ter hot reload)
-    let (api_key, provider, source_lang, target_lang, libre_url, openai_config) = {
-        let config = state.config.lock().unwrap();
-        (
-            config.app_config.translation.deepl_api_key.clone(),
-            config.app_config.translation.provider.clone(),
-            config.app_config.translation.source_language.clone(),
-            config.app_config.translation.target_language.clone(),
-            config.app_config.translation.libretranslate_url.clone(),
-            config.app_config.openai.clone(),
-        )
-    };
-
-    // Verifica cache primeiro
-    if let Some(cached) = state
-        .translation_cache
-        .get(&provider, &source_lang, &target_lang, text)
-    {
-        info!("   📦 Cache hit!");
-        state.subtitle_state.add_translated_subtitle(cached);
-        return Ok(());
-    }
-
-    // Verifica se OpenAI atingiu limite de requests na sessão
-    let effective_provider = if provider == "openai" && openai_config.max_requests_per_session > 0 {
-        let count = *state.openai_request_count.lock().unwrap();
-        if count >= openai_config.max_requests_per_session {
-            info!(
-                "⚠️  OpenAI limite atingido ({}/{}), fallback: {}",
-                count, openai_config.max_requests_per_session, openai_config.fallback_provider
-            );
-            openai_config.fallback_provider.clone()
-        } else {
-            provider.clone()
-        }
-    } else {
-        provider.clone()
-    };
-
-    // Traduz via API
-    let runtime = tokio::runtime::Runtime::new()?;
-    let translated = runtime.block_on(async {
-        translator::translate_batch_with_provider(
-            &[text.to_string()],
-            &effective_provider,
-            &api_key,
-            &source_lang,
-            &target_lang,
-            Some(&libre_url),
-            Some(&openai_config),
-        )
-        .await
-    })?;
-
-    // Incrementa contador se usou OpenAI
-    if effective_provider == "openai" {
-        *state.openai_request_count.lock().unwrap() += 1;
-    }
-
-    if let Some(translated_text) = translated.first() {
-        info!("   ✅ Traduzido: \"{}\"", translated_text);
-
-        // Salva no cache
-        state
-            .translation_cache
-            .set(&provider, &source_lang, &target_lang, text, translated_text);
-
-        // Adiciona ao histórico de legendas
-        state
-            .subtitle_state
-            .add_translated_subtitle(translated_text.clone());
-    }
-
-    Ok(())
-}
-// ============================================================================
 // FUNÇÃO PRINCIPAL
 // ============================================================================
 
@@ -2709,7 +1131,7 @@ fn main() -> Result<()> {
     // Inicia threads
     start_hotkey_thread(state.clone());
     start_config_watcher(state.clone());
-    start_subtitle_thread(state.clone());
+    processing::start_subtitle_thread(state.clone());
 
     info!("✅ Sistema pronto!");
     info!("   Numpad - = Tela inteira");
@@ -2832,7 +1254,7 @@ fn make_window_click_through() {
             let new_style = ex_style | WS_EX_LAYERED as i32 | WS_EX_TRANSPARENT as i32;
             SetWindowLongW(hwnd, GWL_EXSTYLE, new_style);
 
-            info!("✅ Janela configurada como click-through!");
+            trace!("✅ Janela configurada como click-through!");
         } else {
             warn!("⚠️  Não foi possível encontrar a janela para click-through");
         }
