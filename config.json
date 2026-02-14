@@ -114,7 +114,7 @@
     }
   },
   "openai": {
-    "api_key": "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",
+    "api_key": "",
     "model": "gpt-4o-mini",
     "temperature": 0.3,
     "max_tokens": 1024,
