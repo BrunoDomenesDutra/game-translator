@@ -244,35 +244,20 @@ impl eframe::App for OverlayApp {
             let visuals = eframe::egui::Visuals::dark();
             ctx.set_visuals(visuals);
 
-            eframe::egui::CentralPanel::default().show(ctx, |ui| {
-                // Título
-                ui.horizontal(|ui| {
-                    ui.heading("Game Translator - Configurações");
-                    ui.with_layout(
-                        eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
-                        |ui| {
-                            if ui.button("Sair do Programa").clicked() {
-                                std::process::exit(0);
-                            }
-                            ui.add_space(10.0);
-                            if ui.button("Fechar").clicked() {
-                                *self.state.settings_mode.lock().unwrap() = false;
-                                self.settings_config = None;
-                                self.settings_positioned = false;
-                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(
-                                    false,
-                                ));
-                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(
-                                    false,
-                                ));
-                            }
-                        },
-                    );
-                });
+            // ================================================================
+            // HEADER FIXO - Título + Abas (sempre visível no topo)
+            // ================================================================
+            eframe::egui::TopBottomPanel::top("settings_header").show(ctx, |ui| {
+                // ui.add_space(5.0);
 
-                ui.add_space(10.0);
+                // // Título
+                // ui.horizontal(|ui| {
+                //     ui.heading("Game Translator - Configuracoes");
+                // });
 
-                // Abas
+                ui.add_space(5.0);
+
+                // Abas de navegação
                 ui.horizontal(|ui| {
                     if ui
                         .selectable_label(self.settings_tab == 0, "Overlay")
@@ -324,10 +309,17 @@ impl eframe::App for OverlayApp {
                     }
                 });
 
+                ui.add_space(3.0);
+            });
+
+            // ================================================================
+            // FOOTER FIXO - Botões de ação (sempre visível embaixo)
+            // ================================================================
+            eframe::egui::TopBottomPanel::bottom("settings_footer").show(ctx, |ui| {
                 ui.add_space(5.0);
 
-                // Botões de ação (ANTES do scroll pra ficar sempre visível)
                 ui.horizontal(|ui| {
+                    // Botão Salvar
                     if ui.button("Salvar").clicked() {
                         if let Some(ref cfg) = self.settings_config {
                             match cfg.save() {
@@ -335,8 +327,8 @@ impl eframe::App for OverlayApp {
                                     let mut config = self.state.config.lock().unwrap();
                                     config.app_config = cfg.clone();
                                     self.settings_status =
-                                        Some(("✅ Salvo!".to_string(), std::time::Instant::now()));
-                                    info!("💾 Configurações salvas!");
+                                        Some(("Salvo!".to_string(), std::time::Instant::now()));
+                                    info!("Configuracoes salvas!");
                                 }
                                 Err(e) => {
                                     self.settings_status =
@@ -347,6 +339,7 @@ impl eframe::App for OverlayApp {
                         }
                     }
 
+                    // Botão Recarregar
                     if ui.button("Recarregar").clicked() {
                         match config::AppConfig::load() {
                             Ok(cfg) => {
@@ -361,20 +354,46 @@ impl eframe::App for OverlayApp {
                         }
                     }
 
-                    // Mostra status
+                    // Mostra status temporário (3 segundos)
                     if let Some((ref msg, time)) = self.settings_status {
                         if time.elapsed() < std::time::Duration::from_secs(3) {
                             ui.label(msg);
                         }
                     }
+
+                    // Botões do lado direito
+                    ui.with_layout(
+                        eframe::egui::Layout::right_to_left(eframe::egui::Align::Center),
+                        |ui| {
+                            if ui.button("Sair do Programa").clicked() {
+                                std::process::exit(0);
+                            }
+                            ui.add_space(5.0);
+                            if ui.button("Fechar").clicked() {
+                                *self.state.settings_mode.lock().unwrap() = false;
+                                self.settings_config = None;
+                                self.settings_positioned = false;
+                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(
+                                    false,
+                                ));
+                                ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(
+                                    false,
+                                ));
+                            }
+                        },
+                    );
                 });
 
-                ui.separator();
-                ui.add_space(10.0);
+                ui.add_space(5.0);
+            });
 
-                // Conteúdo das abas (delegado ao módulo settings_ui)
-                if let Some(ref mut cfg) = self.settings_config {
-                    eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+            // ================================================================
+            // CONTEÚDO COM SCROLL (entre header e footer)
+            // ================================================================
+            eframe::egui::CentralPanel::default().show(ctx, |ui| {
+                eframe::egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_space(5.0);
+                    if let Some(ref mut cfg) = self.settings_config {
                         settings_ui::render_tab(
                             ui,
                             self.settings_tab,
@@ -382,8 +401,11 @@ impl eframe::App for OverlayApp {
                             &self.state.subtitle_state,
                             &self.state.openai_request_count,
                         );
-                    });
-                }
+                    }
+
+                    // Espaço extra no final pra não colar no footer
+                    ui.add_space(20.0);
+                });
             });
 
             ctx.request_repaint();
