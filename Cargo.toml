@@ -1,36 +1,61 @@
 [package]
-name = "game-translator"
+name = "Ranmza-GT"
 version = "0.1.0"
-edition = "2021"
+edition = "2021" # Define as regras da linguagem Rust usadas no projeto (não é apenas o ano atual)
+
+# ================================================================
+# CONFIGURAÇÕES DE BUILD
+# ================================================================
 
 # Configurações de compilação para melhor performance
+# Equivalente a "build de produção" otimizado
 [profile.release]
-opt-level = 3        # Otimização máxima (como minify no JS)
-lto = true           # Link Time Optimization
-codegen-units = 1    # Melhor otimização (compila mais devagar, mas executa mais rápido)
+opt-level = 3        # Otimização máxima (como minify + optimize no JS)
+lto = true           # Link Time Optimization (melhora performance final)
+codegen-units = 1    # Compila mais devagar, mas gera binário mais otimizado
+
+# ================================================================
+# DEPENDÊNCIAS DE BUILD
+# ================================================================
+
+[build-dependencies]
+# Permite embutir recursos no executável (ex: ícone .ico no .exe)
+# Equivalente a empacotar assets dentro do build
+embed-resource = "2"
+
+# ================================================================
+# DEPENDÊNCIAS PRINCIPAIS
+# ================================================================
 
 [dependencies]
+
 # === CORE: Runtime assíncrono ===
 # Equivalente ao "event loop" do Node.js
 # Permite usar async/await
 tokio = { version = "1.35", features = ["full"] }
 
+# Manipulação de strings UTF-16 (necessário para APIs do Windows)
+# Usado principalmente para WinAPI (CreateMutexW, MessageBoxW, etc)
+widestring = "1"
+
 # === CAPTURA DE TELA ===
-# Biblioteca para tirar screenshots
+# Biblioteca para tirar screenshots da tela
+# Usada para capturar a área do jogo
 screenshots = "0.6"
 
 # === HOTKEYS GLOBAIS ===
 # Detecta teclas pressionadas mesmo quando o jogo está em foco
-# global-hotkey = "0.5"
-device_query = "2.1"      # <-- ADICIONAR ESSA LINHA
+# Alternativa ao global-hotkey
+device_query = "2.1"
 
 # === GERENCIAMENTO DE JANELAS ===
-# Necessário para o sistema de hotkeys funcionar
+# Backend de janela usado por eframe/egui
+# Equivalente ao controle da janela do navegador
 winit = "0.29"
 
 # === HTTP CLIENT ===
-# Para chamar APIs (DeepL, ElevenLabs)
-# Equivalente ao axios do Node.js
+# Para chamar APIs (DeepL, ElevenLabs, etc)
+# Equivalente ao axios/fetch no Node.js
 reqwest = { version = "0.11", features = ["json"] }
 
 # === JSON ===
@@ -40,6 +65,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # === WINDOWS OCR NATIVO ===
+# API nativa do Windows para reconhecimento de texto (OCR)
+# Muito mais performático que soluções externas
 windows = { version = "0.58", features = [
     "Media_Ocr",
     "Graphics_Imaging",
@@ -49,54 +76,81 @@ windows = { version = "0.58", features = [
 ] }
 
 # === LOGGING ===
-# Para debug e mensagens de erro
+# Sistema de logs estruturado
 # Equivalente ao console.log() mas mais robusto
 env_logger = "0.11"
 log = "0.4"
 
 # === ERROS ===
-# Facilita tratamento de erros
+# Facilita tratamento de erros com contexto
+# Equivalente a try/catch melhorado
 anyhow = "1.0"
 
 # === IMAGENS ===
-# Manipulação de imagens
+# Manipulação e processamento de imagens
+# Usado após captura de tela para tratamento antes do OCR
 image = "0.24"
 
-# === VARIÁVEIS DE AMBIENTE ===
-# Para ler API keys de forma segura do arquivo .env
-dotenv = "0.15"
-
 # === OVERLAY / UI ===
-# Framework para criar interfaces gráficas simples e overlays
+# Framework para criar interface gráfica
+# Usado para overlay e janela principal
 eframe = "0.28"
 egui = "0.28"
 
 # === COMUNICAÇÃO ENTRE THREADS ===
+# Canal de comunicação seguro entre threads
+# Equivalente a EventEmitter / worker messaging
 crossbeam-channel = "0.5"
 
 # === FILE SYSTEM WATCHER ===
 # Monitora mudanças em arquivos (ex: .env)
+# Equivalente ao fs.watch do Node.js
 notify = "6.1"
 
 # === ÁUDIO / TTS ===
 # Biblioteca para tocar áudio (MP3, WAV, etc)
+# Usado para reprodução de voz sintetizada
 rodio = "0.17"
 
 # === URL ENCODING ===
+# Codifica strings para uso em URLs
+# Equivalente ao encodeURIComponent()
 urlencoding = "2.1"
 
-# === WINDOWS API ===
-# Para manipular estilos de janela (click-through)
+# ================================================================
+# DEPENDÊNCIAS ESPECÍFICAS PARA WINDOWS
+# ================================================================
+
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "wingdi", "libloaderapi", "hidpi", "shellscalingapi"] }
+
+# === WINDOWS API LEGADO ===
+# Usado para manipular:
+# - Estilos de janela (click-through)
+# - Mutex global (single instance)
+# - MessageBox
+# APIs Win32 de baixo nível
+winapi = { version = "0.3", features = [
+    "winuser",
+    "wingdi",
+    "libloaderapi",
+    "hidpi",
+    "shellscalingapi",
+    "synchapi",
+    "errhandlingapi",
+    "winerror",
+    "winnt"
+]}
+
+# ================================================================
+# SYSTEM TRAY
+# ================================================================
 
 # === SYSTEM TRAY ===
 # Ícone na bandeja do sistema (perto do relógio)
+# Permite manter o app rodando minimizado
 tray-icon = "0.14"
 
 # === MENUS NATIVOS ===
-# Para criar menus no system tray
+# Criação de menus nativos (usado junto com tray-icon)
+# Equivalente a criar menu contextual no Windows
 muda = "0.11"
-
-[build-dependencies]
-embed-resource = "2"

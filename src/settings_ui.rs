@@ -128,12 +128,58 @@ fn render_overlay_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
 // ABA 1 - FONTE
 // ============================================================================
 fn render_font_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
-    ui.heading("Fonte (Modo Regiao/Tela Cheia)");
+    ui.heading("Fonte das Traducoes");
     ui.add_space(10.0);
 
-    // --- Tamanho e tipo ---
+    // --- Seleção de fonte ---
     full_width_group(ui, |ui| {
-        ui.label("Configuracao da fonte:");
+        ui.label("Fonte para traducoes (Display e Legendas):");
+        ui.add_space(5.0);
+        ui.label("Coloque arquivos .ttf na pasta 'fonts/' ao lado do executavel.");
+        ui.add_space(5.0);
+
+        // Lista arquivos .ttf da pasta fonts/
+        let fonts_dir = std::path::Path::new("fonts");
+        let mut font_files: Vec<String> = Vec::new();
+
+        if fonts_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(fonts_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(ext) = path.extension() {
+                        if ext.to_string_lossy().to_lowercase() == "ttf" {
+                            if let Some(name) = path.file_name() {
+                                font_files.push(name.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        font_files.sort();
+
+        if font_files.is_empty() {
+            ui.label("Nenhuma fonte .ttf encontrada na pasta 'fonts/'.");
+        } else {
+            eframe::egui::ComboBox::from_id_source("translation_font_selector")
+                .selected_text(&cfg.font.translation_font)
+                .show_ui(ui, |ui| {
+                    for file in &font_files {
+                        ui.selectable_value(&mut cfg.font.translation_font, file.clone(), file);
+                    }
+                });
+        }
+
+        ui.add_space(5.0);
+        ui.label("A mesma fonte e usada no modo Display e Legendas.");
+    });
+
+    ui.add_space(10.0);
+
+    // --- Tamanho ---
+    full_width_group(ui, |ui| {
+        ui.label("Tamanho da fonte (Display):");
         ui.add_space(5.0);
 
         eframe::egui::Grid::new("font_grid")

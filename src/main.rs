@@ -72,6 +72,11 @@ struct OverlayApp {
     lab_needs_reprocess: bool,
 }
 
+/// Cria um FontId usando a família "translation" (fonte configurada pelo usuário)
+fn translation_font_id(size: f32) -> eframe::egui::FontId {
+    eframe::egui::FontId::new(size, eframe::egui::FontFamily::Name("translation".into()))
+}
+
 impl eframe::App for OverlayApp {
     fn clear_color(&self, _visuals: &eframe::egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0] // Totalmente transparente
@@ -85,6 +90,73 @@ impl eframe::App for OverlayApp {
         {
             // Verifica se está no modo configurações
             let is_settings = *self.state.settings_mode.lock().unwrap();
+
+            // ====================================================================
+            // VERIFICA SE PRECISA RECARREGAR A FONTE DE TRADUÇÃO
+            // ====================================================================
+            {
+                let mut needs_reload = self.state.font_need_reload.lock().unwrap();
+                if *needs_reload {
+                    *needs_reload = false;
+
+                    let translation_font_name = {
+                        let config = self.state.config.lock().unwrap();
+                        config.app_config.font.translation_font.clone()
+                    };
+
+                    let translation_font_path =
+                        std::path::Path::new("fonts").join(&translation_font_name);
+
+                    let mut fonts = eframe::egui::FontDefinitions::default();
+
+                    // Roboto embutida (UI)
+                    let roboto_data = include_bytes!("../fonts/Roboto-Regular.ttf");
+                    fonts.font_data.insert(
+                        "roboto".to_owned(),
+                        eframe::egui::FontData::from_static(roboto_data),
+                    );
+                    fonts
+                        .families
+                        .get_mut(&eframe::egui::FontFamily::Proportional)
+                        .unwrap()
+                        .insert(0, "roboto".to_owned());
+
+                    // Fonte de tradução
+                    let translation_family = eframe::egui::FontFamily::Name("translation".into());
+
+                    if !translation_font_name.is_empty() && translation_font_path.exists() {
+                        match std::fs::read(&translation_font_path) {
+                            Ok(font_data) => {
+                                fonts.font_data.insert(
+                                    "translation".to_owned(),
+                                    eframe::egui::FontData::from_owned(font_data),
+                                );
+                                fonts.families.insert(
+                                    translation_family,
+                                    vec!["translation".to_owned(), "roboto".to_owned()],
+                                );
+                                info!(
+                                    "🔤 Fonte de tradução recarregada: {}",
+                                    translation_font_name
+                                );
+                            }
+                            Err(e) => {
+                                error!("❌ Erro ao recarregar fonte: {}", e);
+                                fonts
+                                    .families
+                                    .insert(translation_family, vec!["roboto".to_owned()]);
+                            }
+                        }
+                    } else {
+                        fonts
+                            .families
+                            .insert(translation_family, vec!["roboto".to_owned()]);
+                        info!("🔤 Fonte de tradução: Roboto (fallback)");
+                    }
+
+                    ctx.set_fonts(fonts);
+                }
+            }
 
             if is_settings {
                 // Modo configurações: remove click-through pra poder interagir
@@ -238,11 +310,11 @@ impl eframe::App for OverlayApp {
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(true));
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(true));
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
-                        eframe::egui::vec2(600.0, 900.0),
+                        eframe::egui::vec2(650.0, 900.0),
                     ));
                     // Tamanho mínimo da janela de configurações
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::MinInnerSize(
-                        eframe::egui::vec2(600.0, 400.0),
+                        eframe::egui::vec2(650.0, 400.0),
                     ));
 
                     let screen_w = unsafe {
@@ -255,7 +327,7 @@ impl eframe::App for OverlayApp {
                         / self.state.dpi_scale;
 
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
-                        eframe::egui::pos2((screen_w - 600.0) / 2.0, (screen_h - 900.0) / 2.0),
+                        eframe::egui::pos2((screen_w - 650.0) / 2.0, (screen_h - 900.0) / 2.0),
                     ));
                 }
             }
@@ -354,6 +426,8 @@ impl eframe::App for OverlayApp {
                                     config.app_config = cfg.clone();
                                     // Sinaliza pra thread de hotkeys recarregar
                                     *self.state.hotkeys_need_reload.lock().unwrap() = true;
+                                    // Sinaliza pra recarregar a fonte de tradução
+                                    *self.state.font_need_reload.lock().unwrap() = true;
                                     self.settings_status =
                                         Some(("Salvo!".to_string(), std::time::Instant::now()));
                                     info!("Configuracoes salvas!");
@@ -517,7 +591,7 @@ impl eframe::App for OverlayApp {
             };
 
             // Calcula altura dinâmica baseada no conteúdo real
-            let font_id_calc = eframe::egui::FontId::proportional(font_size);
+            let font_id_calc = translation_font_id(font_size);
             let screen_width_calc =
                 unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) }
                     as f32;
@@ -581,7 +655,7 @@ impl eframe::App for OverlayApp {
                     }
 
                     // Configura renderização
-                    let font_id = eframe::egui::FontId::proportional(font_size);
+                    let font_id = translation_font_id(font_size);
                     let max_width = overlay_width - 100.0; // Mais margem lateral pro texto
 
                     let text_color = eframe::egui::Color32::from_rgba_unmultiplied(
@@ -733,7 +807,7 @@ impl eframe::App for OverlayApp {
                                     .fill(eframe::egui::Color32::TRANSPARENT),
                             )
                             .show(ctx, |ui| {
-                                let font_id = eframe::egui::FontId::proportional(font_size);
+                                let font_id = translation_font_id(font_size);
 
                                 for item in &items {
                                     if item.translated.is_empty()
@@ -880,7 +954,7 @@ impl eframe::App for OverlayApp {
                                 let text_pos = eframe::egui::pos2(20.0, 15.0);
 
                                 // Configura a fonte
-                                let font_id = eframe::egui::FontId::proportional(font_size);
+                                let font_id = translation_font_id(font_size);
 
                                 // Largura máxima para wrap
                                 let max_width = overlay_width - 40.0;
@@ -1173,6 +1247,49 @@ fn start_config_watcher(state: AppState) {
 // ============================================================================
 
 fn main() -> Result<()> {
+    // ================================================================
+    // GARANTE QUE SÓ UMA INSTÂNCIA DO PROGRAMA RODE
+    // ================================================================
+    // Cria um Named Mutex no Windows. Se já existe, outra instância
+    // está rodando e este processo encerra imediatamente.
+    let _single_instance = unsafe {
+        use widestring::U16CString;
+        use winapi::shared::winerror::ERROR_ALREADY_EXISTS;
+        use winapi::um::errhandlingapi::GetLastError;
+        use winapi::um::synchapi::CreateMutexW;
+        use winapi::um::winuser::{MessageBoxW, MB_ICONWARNING, MB_OK};
+
+        // Cria a string wide corretamente
+        let mutex_name = U16CString::from_str("Global\\RanmzaGameTranslatorMutex").unwrap();
+
+        let handle = CreateMutexW(
+            std::ptr::null_mut(),
+            0,
+            mutex_name.as_ptr(), // ✅ correto
+        );
+
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            eprintln!("Ranmza Game Translator ja esta em execucao!");
+
+            let title = U16CString::from_str("Ranmza Game Translator").unwrap();
+            let msg = U16CString::from_str(
+            "O Ranmza Game Translator ja esta em execucao.\nApenas uma instancia pode rodar por vez.",
+        )
+        .unwrap();
+
+            MessageBoxW(
+                std::ptr::null_mut(),
+                msg.as_ptr(),
+                title.as_ptr(),
+                MB_OK | MB_ICONWARNING,
+            );
+
+            std::process::exit(0);
+        }
+
+        handle
+    };
+
     // Declara que o programa é DPI-aware (Per-Monitor V2)
     // Sem isso, o Windows "mente" e diz que o DPI é 96 (100%)
     // mesmo quando o usuário tem 125%, 150%, etc.
@@ -1258,7 +1375,7 @@ fn main() -> Result<()> {
 
     // Inicia o overlay
     let _ = eframe::run_native(
-        "Game Translator",
+        "Ranmza Game Translator",
         options,
         Box::new(move |cc| {
             // Configura visual transparente
@@ -1267,50 +1384,88 @@ fn main() -> Result<()> {
             visuals.window_fill = eframe::egui::Color32::TRANSPARENT;
             cc.egui_ctx.set_visuals(visuals);
 
-            // Carrega fonte custom se configurada como "file"
+            // ============================================================
+            // CARREGAMENTO DE FONTES
+            // ============================================================
+            // 1. Roboto-Regular embutida no binário = fonte da UI (menus, config)
+            // 2. Fonte de tradução = lida da pasta fonts/ (configurável)
+            // Se a fonte de tradução não existir, usa Roboto como fallback
             {
-                let config = state.config.lock().unwrap();
-                let font_path = &config.app_config.font.file_path;
-                let font_type = &config.app_config.font.font_type;
+                let mut fonts = eframe::egui::FontDefinitions::default();
 
-                if font_type == "file" && !font_path.is_empty() {
-                    match std::fs::read(font_path) {
-                        Ok(font_data) => {
-                            let mut fonts = eframe::egui::FontDefinitions::default();
+                // --- Roboto embutida (UI do programa) ---
+                let roboto_data = include_bytes!("../fonts/Roboto-Regular.ttf");
+                fonts.font_data.insert(
+                    "roboto".to_owned(),
+                    eframe::egui::FontData::from_static(roboto_data),
+                );
 
-                            // Registra a fonte com nome "custom"
-                            fonts.font_data.insert(
-                                "custom".to_owned(),
-                                eframe::egui::FontData::from_owned(font_data),
+                // Roboto como fonte principal da UI (Proportional)
+                fonts
+                    .families
+                    .get_mut(&eframe::egui::FontFamily::Proportional)
+                    .unwrap()
+                    .insert(0, "roboto".to_owned());
+
+                info!("🔤 Fonte da UI: Roboto-Regular (embutida)");
+
+                // --- Fonte de tradução (da pasta fonts/) ---
+                let translation_font_name = {
+                    let config = state.config.lock().unwrap();
+                    config.app_config.font.translation_font.clone()
+                };
+
+                let translation_font_path =
+                    std::path::Path::new("fonts").join(&translation_font_name);
+
+                let translation_loaded =
+                    if !translation_font_name.is_empty() && translation_font_path.exists() {
+                        match std::fs::read(&translation_font_path) {
+                            Ok(font_data) => {
+                                fonts.font_data.insert(
+                                    "translation".to_owned(),
+                                    eframe::egui::FontData::from_owned(font_data),
+                                );
+                                info!(
+                                    "🔤 Fonte de tradução: {} (pasta fonts/)",
+                                    translation_font_name
+                                );
+                                true
+                            }
+                            Err(e) => {
+                                error!(
+                                    "❌ Erro ao carregar fonte '{}': {}",
+                                    translation_font_name, e
+                                );
+                                false
+                            }
+                        }
+                    } else {
+                        if !translation_font_name.is_empty() {
+                            warn!(
+                                "⚠️  Fonte '{}' não encontrada em fonts/",
+                                translation_font_name
                             );
-
-                            // Coloca como primeira opção para Proportional e Monospace
-                            fonts
-                                .families
-                                .get_mut(&eframe::egui::FontFamily::Proportional)
-                                .unwrap()
-                                .insert(0, "custom".to_owned());
-
-                            fonts
-                                .families
-                                .get_mut(&eframe::egui::FontFamily::Monospace)
-                                .unwrap()
-                                .insert(0, "custom".to_owned());
-
-                            cc.egui_ctx.set_fonts(fonts);
-                            info!("✅ Fonte custom carregada: {}", font_path);
                         }
-                        Err(e) => {
-                            error!("❌ Erro ao carregar fonte '{}': {}", font_path, e);
-                            info!("   Usando fonte padrão do sistema");
-                        }
-                    }
-                } else {
-                    info!(
-                        "🔤 Usando fonte do sistema: {}",
-                        config.app_config.font.system_font_name
+                        false
+                    };
+
+                // Registra família "translation" no egui
+                // Se carregou a fonte custom, usa ela; senão, usa Roboto como fallback
+                let translation_family = eframe::egui::FontFamily::Name("translation".into());
+                if translation_loaded {
+                    fonts.families.insert(
+                        translation_family,
+                        vec!["translation".to_owned(), "roboto".to_owned()],
                     );
+                } else {
+                    info!("🔤 Fonte de tradução: usando Roboto (fallback)");
+                    fonts
+                        .families
+                        .insert(translation_family, vec!["roboto".to_owned()]);
                 }
+
+                cc.egui_ctx.set_fonts(fonts);
             }
 
             Ok(Box::new(OverlayApp {
@@ -1349,7 +1504,7 @@ fn make_window_click_through() {
 
     unsafe {
         // Encontra a janela pelo título
-        let title: Vec<u16> = "Game Translator\0".encode_utf16().collect();
+        let title: Vec<u16> = "Ranmza Game Translator\0".encode_utf16().collect();
         let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
 
         if !hwnd.is_null() {
@@ -1373,7 +1528,7 @@ fn remove_window_click_through() {
     };
 
     unsafe {
-        let title: Vec<u16> = "Game Translator\0".encode_utf16().collect();
+        let title: Vec<u16> = "Ranmza Game Translator\0".encode_utf16().collect();
         let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
 
         if !hwnd.is_null() {

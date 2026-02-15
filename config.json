@@ -16,6 +16,7 @@
     "show_background": false
   },
   "font": {
+    "translation_font": "Roboto-Regular.ttf",
     "font_type": "file",
     "system_font_name": "Arial",
     "file_path": "fonts/Roboto-Regular.ttf",
@@ -102,6 +103,7 @@
     "min_display_secs": 3,
     "max_display_secs": 2,
     "font": {
+      "translation_font": "Roboto-Regular.ttf",
       "font_type": "file",
       "system_font_name": "Arial",
       "file_path": "fonts/Roboto-Regular.ttf",
@@ -136,6 +138,7 @@
     }
   },
   "openai": {
+    "api_key": "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",
     "model": "gpt-5-mini",
     "temperature": 0.3,
     "max_tokens": 1024,

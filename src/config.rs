@@ -173,8 +173,17 @@ impl Default for OutlineConfig {
 /// Configuração completa de fonte
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FontConfig {
-    pub font_type: String, // "system", "file", "embedded"
+    /// Nome do arquivo .ttf na pasta fonts/ para as traduções
+    /// Ex: "Roboto-Regular.ttf", "NotoSans-Bold.ttf"
+    /// Se vazio ou arquivo não encontrado, usa fonte padrão do programa
+    #[serde(default = "default_translation_font")]
+    pub translation_font: String,
+    /// Campos legados mantidos para compatibilidade (ignorados)
+    #[serde(default)]
+    pub font_type: String,
+    #[serde(default)]
     pub system_font_name: String,
+    #[serde(default)]
     pub file_path: String,
     pub size: f32,
     pub color: [u8; 4], // RGBA
@@ -182,12 +191,17 @@ pub struct FontConfig {
     pub outline: OutlineConfig,
 }
 
+fn default_translation_font() -> String {
+    "Roboto-Regular.ttf".to_string()
+}
+
 impl Default for FontConfig {
     fn default() -> Self {
         FontConfig {
-            font_type: "system".to_string(),
-            system_font_name: "Arial".to_string(),
-            file_path: "fonts/default.ttf".to_string(),
+            translation_font: "Roboto-Regular.ttf".to_string(),
+            font_type: String::new(),
+            system_font_name: String::new(),
+            file_path: String::new(),
             size: 32.0,
             color: [255, 255, 255, 255],
             shadow: ShadowConfig::default(),
@@ -351,9 +365,10 @@ impl Default for SubtitleConfig {
             min_display_secs: 2,
             max_display_secs: 10,
             font: FontConfig {
-                font_type: "system".to_string(),
-                system_font_name: "Arial".to_string(),
-                file_path: "fonts/Font.ttf".to_string(),
+                translation_font: "Roboto-Regular.ttf".to_string(),
+                font_type: String::new(),
+                system_font_name: String::new(),
+                file_path: String::new(),
                 size: 24.0,
                 color: [255, 255, 255, 255],
                 shadow: ShadowConfig::default(),
@@ -618,7 +633,7 @@ impl Config {
         info!("📋 Carregando configurações completas...");
 
         // Carrega variáveis de ambiente (.env) como fallback
-        dotenv::dotenv().ok();
+        // dotenv::dotenv().ok();
 
         // Carrega config.json primeiro
         let app_config = AppConfig::load()?;

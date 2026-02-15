@@ -86,6 +86,8 @@ pub struct AppState {
     pub openai_request_count: Arc<Mutex<u32>>,
     /// Flag que indica que as hotkeys precisam ser recarregadas
     pub hotkeys_need_reload: Arc<Mutex<bool>>,
+    /// Flag que indica que a fonte de tradução precisa ser recarregada
+    pub font_need_reload: Arc<Mutex<bool>>,
 }
 
 impl AppState {
@@ -114,6 +116,7 @@ impl AppState {
             dpi_scale,
             openai_request_count: Arc::new(Mutex::new(0)),
             hotkeys_need_reload: Arc::new(Mutex::new(false)),
+            font_need_reload: Arc::new(Mutex::new(false)),
         }
     }
 
