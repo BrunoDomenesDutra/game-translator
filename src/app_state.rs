@@ -84,6 +84,8 @@ pub struct AppState {
     pub dpi_scale: f32,
     /// Contador de requests OpenAI na sessão atual
     pub openai_request_count: Arc<Mutex<u32>>,
+    /// Flag que indica que as hotkeys precisam ser recarregadas
+    pub hotkeys_need_reload: Arc<Mutex<bool>>,
 }
 
 impl AppState {
@@ -111,6 +113,7 @@ impl AppState {
             settings_mode: Arc::new(Mutex::new(false)),
             dpi_scale,
             openai_request_count: Arc::new(Mutex::new(0)),
+            hotkeys_need_reload: Arc::new(Mutex::new(false)),
         }
     }
 

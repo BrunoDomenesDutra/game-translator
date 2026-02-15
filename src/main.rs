@@ -238,7 +238,11 @@ impl eframe::App for OverlayApp {
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Decorations(true));
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::Resizable(true));
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(
-                        eframe::egui::vec2(600.0, 700.0),
+                        eframe::egui::vec2(600.0, 900.0),
+                    ));
+                    // Tamanho mínimo da janela de configurações
+                    ctx.send_viewport_cmd(eframe::egui::ViewportCommand::MinInnerSize(
+                        eframe::egui::vec2(600.0, 400.0),
                     ));
 
                     let screen_w = unsafe {
@@ -251,7 +255,7 @@ impl eframe::App for OverlayApp {
                         / self.state.dpi_scale;
 
                     ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
-                        eframe::egui::pos2((screen_w - 600.0) / 2.0, (screen_h - 700.0) / 2.0),
+                        eframe::egui::pos2((screen_w - 600.0) / 2.0, (screen_h - 900.0) / 2.0),
                     ));
                 }
             }
@@ -348,6 +352,8 @@ impl eframe::App for OverlayApp {
                                 Ok(_) => {
                                     let mut config = self.state.config.lock().unwrap();
                                     config.app_config = cfg.clone();
+                                    // Sinaliza pra thread de hotkeys recarregar
+                                    *self.state.hotkeys_need_reload.lock().unwrap() = true;
                                     self.settings_status =
                                         Some(("Salvo!".to_string(), std::time::Instant::now()));
                                     info!("Configuracoes salvas!");
@@ -960,6 +966,17 @@ fn start_hotkey_thread(state: AppState) {
         let mut hotkey_manager = hotkey::HotkeyManager::new(&hotkeys);
 
         loop {
+            // Verifica se precisa recarregar as hotkeys (config foi salvo)
+            {
+                let mut needs_reload = state.hotkeys_need_reload.lock().unwrap();
+                if *needs_reload {
+                    let hotkeys = state.config.lock().unwrap().app_config.hotkeys.clone();
+                    hotkey_manager = hotkey::HotkeyManager::new(&hotkeys);
+                    *needs_reload = false;
+                    info!("⌨️  Hotkeys recarregadas!");
+                }
+            }
+
             if let Some(action) = hotkey_manager.check_hotkey() {
                 // Se está no modo configurações, ignora TODAS as hotkeys
                 // exceto OpenSettings (pra poder fechar a janela)
@@ -1206,14 +1223,36 @@ fn main() -> Result<()> {
     drop(config);
 
     // Opções da janela
+    // Carrega ícone da janela (icon.png ao lado do executável)
+    // Ícone embutido no binário (compilado junto com o .exe)
+    // O arquivo icon.png deve estar na raiz do projeto (ao lado do Cargo.toml)
+    let window_icon = match eframe::icon_data::from_png_bytes(include_bytes!("../icon.png")) {
+        Ok(icon) => {
+            info!("✅ Ícone carregado do binário");
+            Some(std::sync::Arc::new(icon))
+        }
+        Err(e) => {
+            warn!("⚠️  Erro ao carregar ícone embutido: {}", e);
+            None
+        }
+    };
+
+    // Opções da janela
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_inner_size([overlay_width, overlay_height])
+        .with_position([0.0, 0.0])
+        .with_always_on_top()
+        .with_decorations(false)
+        .with_resizable(false)
+        .with_transparent(true);
+
+    // Aplica ícone se carregou
+    if let Some(icon) = window_icon {
+        viewport = viewport.with_icon(icon);
+    }
+
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([overlay_width, overlay_height])
-            .with_position([0.0, 0.0])
-            .with_always_on_top()
-            .with_decorations(false)
-            .with_resizable(false)
-            .with_transparent(true),
+        viewport,
         ..Default::default()
     };
 

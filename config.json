@@ -35,12 +35,34 @@
     }
   },
   "hotkeys": {
-    "translate_fullscreen": "NumpadSubtract",
-    "translate_region": "Numpad9",
-    "select_region": "Numpad7",
-    "select_subtitle_region": "Numpad1",
-    "toggle_subtitle_mode": "Numpad0",
-    "hide_translation": "NumpadDecimal"
+    "translate_fullscreen": {
+      "modifier": "",
+      "key": "NumpadSubtract"
+    },
+    "translate_region": {
+      "modifier": "Ctrl",
+      "key": "Numpad9"
+    },
+    "select_region": {
+      "modifier": "Ctrl",
+      "key": "Numpad7"
+    },
+    "select_subtitle_region": {
+      "modifier": "",
+      "key": "Numpad1"
+    },
+    "toggle_subtitle_mode": {
+      "modifier": "",
+      "key": "Numpad0"
+    },
+    "hide_translation": {
+      "modifier": "",
+      "key": "NumpadDecimal"
+    },
+    "open_settings": {
+      "modifier": "",
+      "key": "Numpad5"
+    }
   },
   "display": {
     "overlay_duration_secs": 10,
@@ -114,7 +136,7 @@
     }
   },
   "openai": {
-    "model": "gpt-4o-mini",
+    "model": "gpt-5-mini",
     "temperature": 0.3,
     "max_tokens": 1024,
     "system_prompt": "Você é um tradutor profissional de LEGENDAS DE JOGOS.\n\nContexto:\n- Jogo com temática Yakuza / crime japonês\n- Diálogos urbanos, adultos, cheios de gírias\n- Tom natural, coloquial, brasileiro\n\nRegras OBRIGATÓRIAS:\n- Traduza para PORTUGUÊS DO BRASIL\n- Priorize LOCALIZAÇÃO, não tradução literal\n- Use gírias brasileiras equivalentes quando fizer sentido\n- Mantenha palavrões quando existirem\n- Não suavize o tom\n- Preserve nomes próprios e honoríficos (-san, -kun, -sensei)\n- Preserve placeholders ({}, %s, %d)\n- Preserve quebras de linha\n- Preserve pontuação dramática (… — ! ?)\n\nFormato de saída:\n- Retorne APENAS um JSON array de strings\n- Mesma ordem do input\n- Sem comentários, sem explicações",

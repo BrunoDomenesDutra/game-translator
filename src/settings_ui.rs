@@ -334,8 +334,12 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
     ui.heading("Teclas de Atalho");
     ui.add_space(10.0);
 
+    // Lista de modificadores disponíveis
+    let modificadores = vec!["", "Ctrl", "Shift", "Alt"];
+
     // Lista de teclas disponíveis
     let teclas_disponiveis = vec![
+        // Numpad
         "Numpad0",
         "Numpad1",
         "Numpad2",
@@ -351,6 +355,7 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
         "NumpadMultiply",
         "NumpadDivide",
         "NumpadDecimal",
+        // Teclas de função
         "F1",
         "F2",
         "F3",
@@ -363,6 +368,55 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
         "F10",
         "F11",
         "F12",
+        // Letras
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I",
+        "J",
+        "K",
+        "L",
+        "M",
+        "N",
+        "O",
+        "P",
+        "Q",
+        "R",
+        "S",
+        "T",
+        "U",
+        "V",
+        "W",
+        "X",
+        "Y",
+        "Z",
+        // Números
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        // Especiais
+        "Space",
+        "Enter",
+        "Escape",
+        "Tab",
+        "Insert",
+        "Delete",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
     ];
 
     // --- Tela Cheia ---
@@ -374,6 +428,7 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             "hotkey_fullscreen",
             "Capturar e traduzir:",
             &mut cfg.hotkeys.translate_fullscreen,
+            &modificadores,
             &teclas_disponiveis,
         );
     });
@@ -389,6 +444,7 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             "hotkey_select_region",
             "Selecionar area:",
             &mut cfg.hotkeys.select_region,
+            &modificadores,
             &teclas_disponiveis,
         );
         render_hotkey_combo(
@@ -396,6 +452,7 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             "hotkey_translate_region",
             "Traduzir area:",
             &mut cfg.hotkeys.translate_region,
+            &modificadores,
             &teclas_disponiveis,
         );
     });
@@ -411,6 +468,7 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             "hotkey_select_subtitle",
             "Selecionar area:",
             &mut cfg.hotkeys.select_subtitle_region,
+            &modificadores,
             &teclas_disponiveis,
         );
         render_hotkey_combo(
@@ -418,6 +476,7 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             "hotkey_toggle_subtitle",
             "Ligar/Desligar:",
             &mut cfg.hotkeys.toggle_subtitle_mode,
+            &modificadores,
             &teclas_disponiveis,
         );
     });
@@ -433,16 +492,20 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             "hotkey_hide",
             "Esconder traducao:",
             &mut cfg.hotkeys.hide_translation,
+            &modificadores,
+            &teclas_disponiveis,
+        );
+        render_hotkey_combo(
+            ui,
+            "hotkey_settings",
+            "Abrir configuracoes:",
+            &mut cfg.hotkeys.open_settings,
+            &modificadores,
             &teclas_disponiveis,
         );
     });
 
     ui.add_space(10.0);
-
-    // --- Aviso ---
-    full_width_group(ui, |ui| {
-        ui.label("Reinicie o programa apos alterar os atalhos.");
-    });
 }
 
 // ============================================================================
@@ -1391,29 +1454,51 @@ fn render_preprocess_controls(
     ui.checkbox(&mut preprocess.save_debug_image, "Salvar imagem debug");
 }
 
-/// Renderiza um combo box de hotkey com label, usando layout horizontal simples.
-/// O alinhamento entre combos é garantido pelo min_label_width fixo.
+/// Renderiza um combo de hotkey com modificador + tecla.
+/// Mostra dois ComboBox lado a lado: [Modificador] [Tecla]
 fn render_hotkey_combo(
     ui: &mut eframe::egui::Ui,
     id: &str,
     label: &str,
-    value: &mut String,
-    options: &[&str],
+    binding: &mut config::HotkeyBinding,
+    modifiers: &[&str],
+    keys: &[&str],
 ) {
     ui.horizontal(|ui| {
         // Largura fixa pro label garante que todos os combos alinhem
         let label_response = ui.label(label);
         let used = label_response.rect.width();
-        let min_label = 150.0; // Largura mínima pra todos os labels de hotkey
+        let min_label = 150.0;
         if used < min_label {
             ui.add_space(min_label - used);
         }
 
-        eframe::egui::ComboBox::from_id_source(format!("{}_combo", id))
-            .selected_text(value.as_str())
-            .show_ui(ui, |ui: &mut eframe::egui::Ui| {
-                for opt in options {
-                    ui.selectable_value(value, opt.to_string(), *opt);
+        // ComboBox do modificador
+        let mod_display = if binding.modifier.is_empty() {
+            "Nenhum"
+        } else {
+            &binding.modifier
+        };
+
+        eframe::egui::ComboBox::from_id_source(format!("{}_mod", id))
+            .selected_text(mod_display)
+            .width(70.0)
+            .show_ui(ui, |ui| {
+                for m in modifiers {
+                    let display = if m.is_empty() { "Nenhum" } else { m };
+                    ui.selectable_value(&mut binding.modifier, m.to_string(), display);
+                }
+            });
+
+        ui.label("+");
+
+        // ComboBox da tecla principal
+        eframe::egui::ComboBox::from_id_source(format!("{}_key", id))
+            .selected_text(&binding.key)
+            .width(130.0)
+            .show_ui(ui, |ui| {
+                for k in keys {
+                    ui.selectable_value(&mut binding.key, k.to_string(), *k);
                 }
             });
     });

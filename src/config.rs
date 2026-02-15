@@ -59,26 +59,74 @@ impl Default for OverlayConfig {
     }
 }
 
+/// Um atalho de teclado: modificador opcional + tecla principal.
+/// Exemplo: { "modifier": "Ctrl", "key": "T" } ou { "modifier": "", "key": "Numpad0" }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotkeyBinding {
+    /// Modificador: "" (nenhum), "Ctrl", "Shift", "Alt"
+    #[serde(default)]
+    pub modifier: String,
+    /// Tecla principal: "Numpad0", "F1", "A", "B", etc.
+    pub key: String,
+}
+
+impl HotkeyBinding {
+    /// Cria um binding sem modificador (compatível com o formato antigo)
+    pub fn key_only(key: &str) -> Self {
+        HotkeyBinding {
+            modifier: String::new(),
+            key: key.to_string(),
+        }
+    }
+
+    /// Cria um binding com modificador
+    #[allow(dead_code)]
+    pub fn with_modifier(modifier: &str, key: &str) -> Self {
+        HotkeyBinding {
+            modifier: modifier.to_string(),
+            key: key.to_string(),
+        }
+    }
+
+    /// Retorna uma string legível pro usuário: "Ctrl + T" ou "Numpad0"
+    #[allow(dead_code)]
+    pub fn display_name(&self) -> String {
+        if self.modifier.is_empty() {
+            self.key.clone()
+        } else {
+            format!("{} + {}", self.modifier, self.key)
+        }
+    }
+}
+
 /// Estrutura de configuração das hotkeys
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotkeyConfig {
-    pub translate_fullscreen: String,
-    pub translate_region: String,
-    pub select_region: String,
-    pub select_subtitle_region: String,
-    pub toggle_subtitle_mode: String,
-    pub hide_translation: String,
+    pub translate_fullscreen: HotkeyBinding,
+    pub translate_region: HotkeyBinding,
+    pub select_region: HotkeyBinding,
+    pub select_subtitle_region: HotkeyBinding,
+    pub toggle_subtitle_mode: HotkeyBinding,
+    pub hide_translation: HotkeyBinding,
+    /// Atalho pra abrir configurações (sempre Numpad5 por padrão)
+    #[serde(default = "default_open_settings_binding")]
+    pub open_settings: HotkeyBinding,
+}
+
+fn default_open_settings_binding() -> HotkeyBinding {
+    HotkeyBinding::key_only("Numpad5")
 }
 
 impl Default for HotkeyConfig {
     fn default() -> Self {
         HotkeyConfig {
-            translate_fullscreen: "NumpadSubtract".to_string(),
-            translate_region: "NumpadAdd".to_string(),
-            select_region: "NumpadMultiply".to_string(),
-            select_subtitle_region: "NumpadDivide".to_string(),
-            toggle_subtitle_mode: "Numpad0".to_string(),
-            hide_translation: "NumpadDecimal".to_string(),
+            translate_fullscreen: HotkeyBinding::key_only("NumpadSubtract"),
+            translate_region: HotkeyBinding::key_only("NumpadAdd"),
+            select_region: HotkeyBinding::key_only("NumpadMultiply"),
+            select_subtitle_region: HotkeyBinding::key_only("NumpadDivide"),
+            toggle_subtitle_mode: HotkeyBinding::key_only("Numpad0"),
+            hide_translation: HotkeyBinding::key_only("NumpadDecimal"),
+            open_settings: HotkeyBinding::key_only("Numpad5"),
         }
     }
 }

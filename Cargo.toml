@@ -97,3 +97,6 @@ tray-icon = "0.14"
 # === MENUS NATIVOS ===
 # Para criar menus no system tray
 muda = "0.11"
+
+[build-dependencies]
+embed-resource = "2"

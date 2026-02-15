@@ -1,26 +1,37 @@
 // game-translator/src/hotkey.rs
 
 // ============================================================================
-// MÓDULO HOTKEY - Gerenciamento de hotkeys usando device_query
+// MÓDULO HOTKEY - Gerenciamento de hotkeys com suporte a modificadores
+// ============================================================================
+// Suporta combinações como Ctrl+T, Shift+F1, Alt+Numpad0
+// ou teclas simples como Numpad0, F5, etc.
 // ============================================================================
 
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
+use crate::config::HotkeyBinding;
+
+/// Estrutura interna que representa um atalho já convertido pra Keycode
+struct ParsedBinding {
+    /// Tecla modificadora (None = sem modificador)
+    modifier: Option<Keycode>,
+    /// Tecla principal
+    key: Keycode,
+    /// Ação associada
+    action: HotkeyAction,
+}
+
 /// Estrutura que gerencia hotkeys
 pub struct HotkeyManager {
     device_state: DeviceState,
-    pressed_keys: HashSet<Keycode>, // Teclas que já foram processadas
-    last_action_time: Instant,      // Para evitar spam global
-    // Mapeamento de ações para teclas (lido do config)
-    hotkey_translate_fullscreen: Keycode,
-    hotkey_translate_region: Keycode,
-    hotkey_select_region: Keycode,
-    hotkey_select_subtitle_region: Keycode,
-    hotkey_toggle_subtitle_mode: Keycode,
-    hotkey_hide_translation: Keycode,
-    hotkey_open_settings: Keycode,
+    /// Teclas que já foram processadas (evita repetição enquanto segura)
+    pressed_keys: HashSet<Keycode>,
+    /// Para evitar múltiplas ações rápidas
+    last_action_time: Instant,
+    /// Lista de atalhos configurados
+    bindings: Vec<ParsedBinding>,
 }
 
 /// Tipo de ação solicitada pelo usuário
@@ -40,6 +51,20 @@ pub enum HotkeyAction {
     HideTranslation,
     /// Abre a janela de configurações
     OpenSettings,
+}
+
+/// Converte uma string de modificador para Keycode
+fn modifier_to_keycode(s: &str) -> Option<Keycode> {
+    match s.to_lowercase().as_str() {
+        "ctrl" | "control" | "lcontrol" => Some(Keycode::LControl),
+        "shift" | "lshift" => Some(Keycode::LShift),
+        "alt" | "lalt" => Some(Keycode::LAlt),
+        "" => None,
+        other => {
+            warn!("⚠️  Modificador desconhecido: '{}', ignorando", other);
+            None
+        }
+    }
 }
 
 /// Converte uma string do config para Keycode
@@ -74,11 +99,70 @@ fn string_to_keycode(s: &str) -> Keycode {
         "F10" => Keycode::F10,
         "F11" => Keycode::F11,
         "F12" => Keycode::F12,
+        // Letras A-Z
+        "A" => Keycode::A,
+        "B" => Keycode::B,
+        "C" => Keycode::C,
+        "D" => Keycode::D,
+        "E" => Keycode::E,
+        "F" => Keycode::F,
+        "G" => Keycode::G,
+        "H" => Keycode::H,
+        "I" => Keycode::I,
+        "J" => Keycode::J,
+        "K" => Keycode::K,
+        "L" => Keycode::L,
+        "M" => Keycode::M,
+        "N" => Keycode::N,
+        "O" => Keycode::O,
+        "P" => Keycode::P,
+        "Q" => Keycode::Q,
+        "R" => Keycode::R,
+        "S" => Keycode::S,
+        "T" => Keycode::T,
+        "U" => Keycode::U,
+        "V" => Keycode::V,
+        "W" => Keycode::W,
+        "X" => Keycode::X,
+        "Y" => Keycode::Y,
+        "Z" => Keycode::Z,
+        // Números do teclado principal
+        "0" => Keycode::Key0,
+        "1" => Keycode::Key1,
+        "2" => Keycode::Key2,
+        "3" => Keycode::Key3,
+        "4" => Keycode::Key4,
+        "5" => Keycode::Key5,
+        "6" => Keycode::Key6,
+        "7" => Keycode::Key7,
+        "8" => Keycode::Key8,
+        "9" => Keycode::Key9,
+        // Teclas especiais
+        "Space" => Keycode::Space,
+        "Enter" => Keycode::Enter,
+        "Escape" => Keycode::Escape,
+        "Tab" => Keycode::Tab,
+        "Backspace" => Keycode::Backspace,
+        "Insert" => Keycode::Insert,
+        "Delete" => Keycode::Delete,
+        "Home" => Keycode::Home,
+        "End" => Keycode::End,
+        "PageUp" => Keycode::PageUp,
+        "PageDown" => Keycode::PageDown,
         // Padrão
         _ => {
-            warn!("⚠️  Tecla desconhecida: {}, usando Numpad0", s);
+            warn!("⚠️  Tecla desconhecida: '{}', usando Numpad0", s);
             Keycode::Numpad0
         }
+    }
+}
+
+/// Converte um HotkeyBinding do config em um ParsedBinding interno
+fn parse_binding(binding: &HotkeyBinding, action: HotkeyAction) -> ParsedBinding {
+    ParsedBinding {
+        modifier: modifier_to_keycode(&binding.modifier),
+        key: string_to_keycode(&binding.key),
+        action,
     }
 }
 
@@ -87,79 +171,94 @@ impl HotkeyManager {
         info!("⌨️  Configurando detecção de teclas...");
         let device_state = DeviceState::new();
 
-        // Converte as strings do config para Keycode
-        let hotkey_translate_fullscreen = string_to_keycode(&hotkeys.translate_fullscreen);
-        let hotkey_translate_region = string_to_keycode(&hotkeys.translate_region);
-        let hotkey_select_region = string_to_keycode(&hotkeys.select_region);
-        let hotkey_select_subtitle_region = string_to_keycode(&hotkeys.select_subtitle_region);
-        let hotkey_toggle_subtitle_mode = string_to_keycode(&hotkeys.toggle_subtitle_mode);
-        let hotkey_hide_translation = string_to_keycode(&hotkeys.hide_translation);
-        let hotkey_open_settings = Keycode::Numpad5; // Fixo por enquanto
+        // Converte todos os bindings do config
+        let bindings = vec![
+            parse_binding(&hotkeys.select_region, HotkeyAction::SelectRegion),
+            parse_binding(&hotkeys.translate_region, HotkeyAction::TranslateRegion),
+            parse_binding(
+                &hotkeys.translate_fullscreen,
+                HotkeyAction::TranslateFullScreen,
+            ),
+            parse_binding(
+                &hotkeys.select_subtitle_region,
+                HotkeyAction::SelectSubtitleRegion,
+            ),
+            parse_binding(
+                &hotkeys.toggle_subtitle_mode,
+                HotkeyAction::ToggleSubtitleMode,
+            ),
+            parse_binding(&hotkeys.hide_translation, HotkeyAction::HideTranslation),
+            parse_binding(&hotkeys.open_settings, HotkeyAction::OpenSettings),
+        ];
+
+        // Log dos atalhos configurados
+        for b in &bindings {
+            let mod_str = match &b.modifier {
+                Some(m) => format!("{:?} + ", m),
+                None => String::new(),
+            };
+            info!("   {:?}: {}{:?}", b.action, mod_str, b.key);
+        }
 
         info!("✅ Detecção de teclas configurada!");
-        info!("   Tela cheia: {:?}", hotkey_translate_fullscreen);
-        info!("   Região: {:?}", hotkey_translate_region);
-        info!("   Selecionar região: {:?}", hotkey_select_region);
 
         HotkeyManager {
             device_state,
             pressed_keys: HashSet::new(),
             last_action_time: Instant::now(),
-            hotkey_translate_fullscreen,
-            hotkey_translate_region,
-            hotkey_select_region,
-            hotkey_select_subtitle_region,
-            hotkey_toggle_subtitle_mode,
-            hotkey_hide_translation,
-            hotkey_open_settings,
+            bindings,
         }
     }
 
-    /// Verifica se alguma hotkey foi pressionada e retorna qual
-    ///
-    /// # Retorna
-    /// * `Some(HotkeyAction)` - Se alguma hotkey foi pressionada
-    /// * `None` - Se nenhuma hotkey está pressionada
+    /// Verifica se alguma hotkey foi pressionada e retorna qual ação
     pub fn check_hotkey(&mut self) -> Option<HotkeyAction> {
-        // Evita múltiplas execuções rápidas (ex: <200ms)
+        // Evita múltiplas execuções rápidas
         if self.last_action_time.elapsed() < Duration::from_millis(200) {
             return None;
         }
 
         let keys = self.device_state.get_keys();
 
-        // Lista de teclas e suas ações correspondentes (lidas do config)
-        let key_actions = [
-            (self.hotkey_select_region, HotkeyAction::SelectRegion),
-            (self.hotkey_translate_region, HotkeyAction::TranslateRegion),
-            (
-                self.hotkey_translate_fullscreen,
-                HotkeyAction::TranslateFullScreen,
-            ),
-            (
-                self.hotkey_select_subtitle_region,
-                HotkeyAction::SelectSubtitleRegion,
-            ),
-            (
-                self.hotkey_toggle_subtitle_mode,
-                HotkeyAction::ToggleSubtitleMode,
-            ),
-            (self.hotkey_hide_translation, HotkeyAction::HideTranslation),
-            (self.hotkey_open_settings, HotkeyAction::OpenSettings),
-        ];
+        for binding in &self.bindings {
+            // Verifica se a tecla principal está pressionada
+            if keys.contains(&binding.key) {
+                // Verifica se o modificador está correto
+                let modifier_ok = match &binding.modifier {
+                    // Se precisa de modificador, verifica se está pressionado
+                    // Aceita tanto Left quanto Right (Ctrl, Shift, Alt)
+                    Some(modifier) => {
+                        keys.contains(modifier)
+                            || match modifier {
+                                Keycode::LControl => keys.contains(&Keycode::RControl),
+                                Keycode::LShift => keys.contains(&Keycode::RShift),
+                                Keycode::LAlt => keys.contains(&Keycode::RAlt),
+                                _ => false,
+                            }
+                    }
+                    // Se NÃO precisa de modificador, verifica que NENHUM está pressionado
+                    // Isso evita que Ctrl+T ative o atalho configurado pra só "T"
+                    None => {
+                        !keys.contains(&Keycode::LControl)
+                            && !keys.contains(&Keycode::RControl)
+                            && !keys.contains(&Keycode::LShift)
+                            && !keys.contains(&Keycode::RShift)
+                            && !keys.contains(&Keycode::LAlt)
+                            && !keys.contains(&Keycode::RAlt)
+                    }
+                };
 
-        for &(key, action) in &key_actions {
-            if keys.contains(&key) {
-                if !self.pressed_keys.contains(&key) {
-                    self.pressed_keys.insert(key);
-                    self.last_action_time = Instant::now();
-                    return Some(action);
+                if modifier_ok {
+                    // Sistema de "press once" — só dispara na primeira detecção
+                    if !self.pressed_keys.contains(&binding.key) {
+                        self.pressed_keys.insert(binding.key);
+                        self.last_action_time = Instant::now();
+                        return Some(binding.action);
+                    }
+                    return None;
                 }
-                // Já pressionada — não faz nada
-                return None;
             } else {
                 // Tecla foi solta — remove do conjunto
-                self.pressed_keys.remove(&key);
+                self.pressed_keys.remove(&binding.key);
             }
         }
 
