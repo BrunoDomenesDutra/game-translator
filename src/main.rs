@@ -58,6 +58,18 @@ struct OverlayApp {
     debug_texture: Option<eframe::egui::TextureHandle>,
     /// Quando a textura debug foi atualizada pela última vez
     debug_texture_last_update: std::time::Instant,
+    /// Textura da imagem original do laboratório
+    lab_original_texture: Option<eframe::egui::TextureHandle>,
+    /// Textura da imagem processada do laboratório
+    lab_processed_texture: Option<eframe::egui::TextureHandle>,
+    /// Configuração de pré-processamento do laboratório (independente)
+    lab_preprocess: Option<crate::config::PreprocessConfig>,
+    /// Nome do arquivo selecionado no laboratório
+    lab_selected_file: Option<String>,
+    /// Imagem original carregada (pra não reler do disco toda hora)
+    lab_original_image: Option<image::DynamicImage>,
+    /// Flag que indica que os parâmetros mudaram e precisa reprocessar
+    lab_needs_reprocess: bool,
 }
 
 impl eframe::App for OverlayApp {
@@ -311,6 +323,12 @@ impl eframe::App for OverlayApp {
                     {
                         self.settings_tab = 7;
                     }
+                    if ui
+                        .selectable_label(self.settings_tab == 8, "Laboratorio")
+                        .clicked()
+                    {
+                        self.settings_tab = 8;
+                    }
                 });
 
                 ui.add_space(3.0);
@@ -406,6 +424,12 @@ impl eframe::App for OverlayApp {
                             &self.state.openai_request_count,
                             &mut self.debug_texture,
                             &mut self.debug_texture_last_update,
+                            &mut self.lab_original_texture,
+                            &mut self.lab_processed_texture,
+                            &mut self.lab_preprocess,
+                            &mut self.lab_selected_file,
+                            &mut self.lab_original_image,
+                            &mut self.lab_needs_reprocess,
                         );
                     }
 
@@ -937,6 +961,13 @@ fn start_hotkey_thread(state: AppState) {
 
         loop {
             if let Some(action) = hotkey_manager.check_hotkey() {
+                // Se está no modo configurações, ignora TODAS as hotkeys
+                // exceto OpenSettings (pra poder fechar a janela)
+                let is_settings = *state.settings_mode.lock().unwrap();
+                if is_settings && action != hotkey::HotkeyAction::OpenSettings {
+                    continue;
+                }
+
                 match action {
                     hotkey::HotkeyAction::SelectRegion => {
                         info!("");
@@ -1253,6 +1284,12 @@ fn main() -> Result<()> {
                 settings_positioned: false,
                 debug_texture: None,
                 debug_texture_last_update: std::time::Instant::now(),
+                lab_original_texture: None,
+                lab_processed_texture: None,
+                lab_preprocess: None,
+                lab_selected_file: None,
+                lab_original_image: None,
+                lab_needs_reprocess: false,
                 // last_window_size: (0.0, 0.0),
             }) as Box<dyn eframe::App>)
         }),
