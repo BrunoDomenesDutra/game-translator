@@ -76,7 +76,7 @@
       "width": 1459,
       "height": 173
     },
-    "capture_interval_ms": 100,
+    "capture_interval_ms": 50,
     "min_display_secs": 3,
     "max_display_secs": 2,
     "font": {
@@ -98,28 +98,30 @@
         "color": [0, 0, 0, 255]
       }
     },
-    "max_lines": 2,
+    "max_lines": 1,
     "preprocess": {
       "enabled": true,
-      "grayscale": true,
+      "grayscale": false,
       "invert": false,
-      "contrast": 2.0,
+      "contrast": 3.0,
       "threshold": 185,
       "save_debug_image": true,
       "upscale": 2.0,
-      "blur": 1.5,
-      "dilate": 1,
-      "erode": 0,
+      "blur": 0.0,
+      "dilate": 2,
+      "erode": 1,
       "edge_detection": 0
     }
   },
   "openai": {
+    "api_key": "",
     "model": "gpt-4o-mini",
     "temperature": 0.3,
     "max_tokens": 1024,
-    "context_lines": 5,
     "system_prompt": "Você é um tradutor profissional de LEGENDAS DE JOGOS.\n\nContexto:\n- Jogo com temática Yakuza / crime japonês\n- Diálogos urbanos, adultos, cheios de gírias\n- Tom natural, coloquial, brasileiro\n\nRegras OBRIGATÓRIAS:\n- Traduza para PORTUGUÊS DO BRASIL\n- Priorize LOCALIZAÇÃO, não tradução literal\n- Use gírias brasileiras equivalentes quando fizer sentido\n- Mantenha palavrões quando existirem\n- Não suavize o tom\n- Preserve nomes próprios e honoríficos (-san, -kun, -sensei)\n- Preserve placeholders ({}, %s, %d)\n- Preserve quebras de linha\n- Preserve pontuação dramática (… — ! ?)\n\nFormato de saída:\n- Retorne APENAS um JSON array de strings\n- Mesma ordem do input\n- Sem comentários, sem explicações",
     "max_requests_per_session": 0,
-    "fallback_provider": "google"
+    "fallback_provider": "google",
+    "context_lines": 5,
+    "game_context": ""
   }
 }

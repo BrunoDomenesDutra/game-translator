@@ -32,12 +32,26 @@ pub fn render_tab(
     cfg: &mut config::AppConfig,
     subtitle_state: &subtitle::SubtitleState,
     openai_request_count: &Arc<Mutex<u32>>,
+    debug_texture: &mut Option<eframe::egui::TextureHandle>,
+    debug_texture_last_update: &mut std::time::Instant,
 ) {
     match tab {
         0 => render_overlay_tab(ui, cfg),
         1 => render_font_tab(ui, cfg),
-        2 => render_display_tab(ui, cfg),
-        3 => render_subtitle_tab(ui, cfg),
+        2 => render_display_tab(
+            ui,
+            cfg,
+            debug_texture,
+            debug_texture_last_update,
+            subtitle_state,
+        ),
+        3 => render_subtitle_tab(
+            ui,
+            cfg,
+            debug_texture,
+            debug_texture_last_update,
+            subtitle_state,
+        ),
         4 => render_hotkeys_tab(ui, cfg),
         5 => render_services_tab(ui, cfg),
         6 => render_history_tab(ui, subtitle_state),
@@ -146,7 +160,13 @@ fn render_font_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
 // ============================================================================
 // ABA 2 - DISPLAY (Pré-processamento OCR)
 // ============================================================================
-fn render_display_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
+fn render_display_tab(
+    ui: &mut eframe::egui::Ui,
+    cfg: &mut config::AppConfig,
+    debug_texture: &mut Option<eframe::egui::TextureHandle>,
+    debug_texture_last_update: &mut std::time::Instant,
+    subtitle_state: &subtitle::SubtitleState,
+) {
     ui.heading("Pre-processamento OCR");
     ui.add_space(10.0);
 
@@ -162,12 +182,25 @@ fn render_display_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             render_preprocess_controls(ui, &mut cfg.display.preprocess, "preprocess");
         }
     });
+
+    ui.add_space(10.0);
+
+    // --- Preview da imagem debug ---
+    if cfg.display.preprocess.save_debug_image {
+        render_debug_preview(ui, debug_texture, debug_texture_last_update, subtitle_state);
+    }
 }
 
 // ============================================================================
 // ABA 3 - LEGENDAS
 // ============================================================================
-fn render_subtitle_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
+fn render_subtitle_tab(
+    ui: &mut eframe::egui::Ui,
+    cfg: &mut config::AppConfig,
+    debug_texture: &mut Option<eframe::egui::TextureHandle>,
+    debug_texture_last_update: &mut std::time::Instant,
+    subtitle_state: &subtitle::SubtitleState,
+) {
     ui.heading("Legendas");
     ui.add_space(10.0);
 
@@ -267,6 +300,13 @@ fn render_subtitle_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
             render_preprocess_controls(ui, &mut cfg.subtitle.preprocess, "sub_preprocess");
         }
     });
+
+    ui.add_space(10.0);
+
+    // --- Preview da imagem debug ---
+    if cfg.subtitle.preprocess.save_debug_image {
+        render_debug_preview(ui, debug_texture, debug_texture_last_update, subtitle_state);
+    }
 }
 
 // ============================================================================
@@ -539,12 +579,12 @@ fn render_history_tab(ui: &mut eframe::egui::Ui, subtitle_state: &subtitle::Subt
 
     // --- Controles ---
     full_width_group(ui, |ui| {
-        let history = subtitle_state.get_subtitle_history();
+        let history = subtitle_state.get_full_history();
         ui.label(format!("{} legendas no historico", history.len()));
 
         ui.add_space(5.0);
         if ui.button("Limpar historico").clicked() {
-            subtitle_state.reset();
+            subtitle_state.clear_full_history();
         }
     });
 
@@ -555,7 +595,7 @@ fn render_history_tab(ui: &mut eframe::egui::Ui, subtitle_state: &subtitle::Subt
         ui.label("Legendas traduzidas:");
         ui.add_space(5.0);
 
-        let history = subtitle_state.get_subtitle_history();
+        let history = subtitle_state.get_full_history();
 
         if history.is_empty() {
             ui.label("Nenhuma legenda traduzida ainda.");
@@ -793,6 +833,110 @@ fn render_openai_tab(
 // ============================================================================
 // FUNÇÕES AUXILIARES (reutilizadas em múltiplas abas)
 // ============================================================================
+
+/// Intervalo de refresh da imagem debug (em milissegundos)
+const DEBUG_PREVIEW_REFRESH_MS: u128 = 500;
+
+/// Renderiza a preview da imagem debug de pré-processamento.
+/// Lê o arquivo debug_preprocessed.png do disco e mostra na tela.
+/// Atualiza automaticamente a cada 500ms.
+fn render_debug_preview(
+    ui: &mut eframe::egui::Ui,
+    debug_texture: &mut Option<eframe::egui::TextureHandle>,
+    last_update: &mut std::time::Instant,
+    subtitle_state: &subtitle::SubtitleState,
+) {
+    full_width_group(ui, |ui| {
+        ui.label("Preview do pre-processamento (auto-refresh):");
+        ui.add_space(5.0);
+
+        // Verifica se precisa atualizar a textura (a cada 500ms)
+        let needs_update = last_update.elapsed().as_millis() >= DEBUG_PREVIEW_REFRESH_MS;
+
+        if needs_update {
+            // Tenta ler o arquivo de debug do disco
+            let path = std::path::Path::new("debug_preprocessed.png");
+
+            if path.exists() {
+                match image::open(path) {
+                    Ok(img) => {
+                        // Converte a imagem pra RGBA8
+                        let rgba = img.to_rgba8();
+                        let size = [rgba.width() as usize, rgba.height() as usize];
+                        let pixels = rgba.into_raw();
+
+                        // Cria ColorImage pro egui
+                        let color_image =
+                            eframe::egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+
+                        // Cria ou atualiza a textura
+                        match debug_texture {
+                            Some(ref mut tex) => {
+                                // Atualiza textura existente
+                                tex.set(color_image, eframe::egui::TextureOptions::LINEAR);
+                            }
+                            None => {
+                                // Cria nova textura
+                                *debug_texture = Some(ui.ctx().load_texture(
+                                    "debug_preview",
+                                    color_image,
+                                    eframe::egui::TextureOptions::LINEAR,
+                                ));
+                            }
+                        }
+
+                        *last_update = std::time::Instant::now();
+                    }
+                    Err(e) => {
+                        ui.label(format!("Erro ao ler imagem: {}", e));
+                    }
+                }
+            } else {
+                ui.label("Arquivo debug_preprocessed.png nao encontrado.");
+                ui.label("Faca uma captura primeiro para gerar a imagem.");
+            }
+        }
+
+        // Renderiza a textura se existir
+        if let Some(ref texture) = debug_texture {
+            let tex_size = texture.size_vec2();
+
+            // Escala pra caber na largura disponível, mantendo proporção
+            let available_w = ui.available_width();
+            let scale = (available_w / tex_size.x).min(1.0); // Não amplia, só reduz
+            let display_size = eframe::egui::vec2(tex_size.x * scale, tex_size.y * scale);
+
+            ui.image(eframe::egui::load::SizedTexture::new(
+                texture.id(),
+                display_size,
+            ));
+
+            // Info sobre a imagem
+            ui.add_space(3.0);
+            ui.label(format!(
+                "{}x{} pixels (atualiza a cada {}ms)",
+                tex_size.x as u32, tex_size.y as u32, DEBUG_PREVIEW_REFRESH_MS,
+            ));
+        }
+
+        // --- Última tradução ---
+        let history = subtitle_state.get_full_history();
+        if let Some(last) = history.last() {
+            ui.add_space(5.0);
+            ui.separator();
+            ui.add_space(3.0);
+            ui.label("Ultima traducao:");
+            ui.label(
+                eframe::egui::RichText::new(&last.translated)
+                    .size(16.0)
+                    .color(eframe::egui::Color32::from_rgb(100, 200, 255)),
+            );
+        }
+
+        // Força repaint pra manter o auto-refresh funcionando
+        ui.ctx().request_repaint();
+    });
+}
 
 /// Renderiza um grupo (caixa com borda) que sempre ocupa a largura total disponível.
 /// Substitui ui.group() pra manter visual consistente em todas as abas.

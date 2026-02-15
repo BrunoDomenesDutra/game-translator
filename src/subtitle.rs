@@ -50,8 +50,11 @@ pub struct SubtitleState {
     last_confirmed_text: Arc<Mutex<String>>,
     /// Candidato atual (aguardando estabilização)
     current_candidate: Arc<Mutex<Option<SubtitleCandidate>>>,
-    /// Histórico de legendas traduzidas
+    /// Legendas ativas no overlay (limpa no timeout)
     subtitle_history: Arc<Mutex<Vec<SubtitleEntry>>>,
+    /// Histórico completo da sessão (nunca limpa automaticamente)
+    /// Só é limpo manualmente pelo botão "Limpar historico"
+    full_history: Arc<Mutex<Vec<SubtitleEntry>>>,
     /// Número de vezes que o texto precisa ser visto para confirmar (debounce)
     required_stable_count: u32,
     /// Momento da última detecção de texto (para timeout)
@@ -69,6 +72,7 @@ impl SubtitleState {
             last_confirmed_text: Arc::new(Mutex::new(String::new())),
             current_candidate: Arc::new(Mutex::new(None)),
             subtitle_history: Arc::new(Mutex::new(Vec::new())),
+            full_history: Arc::new(Mutex::new(Vec::new())),
             required_stable_count: 2,
             last_detection_time: Arc::new(Mutex::new(Instant::now())),
         }
@@ -171,28 +175,61 @@ impl SubtitleState {
         last_time.elapsed() > std::time::Duration::from_secs(timeout_secs)
     }
 
-    /// Limpa o histórico e reseta o estado (quando timeout expira)
+    /// Reseta o estado ativo (quando timeout expira)
+    /// Limpa apenas as legendas do overlay, NÃO o histórico completo
     pub fn reset(&self) {
         *self.last_confirmed_text.lock().unwrap() = String::new();
         *self.current_candidate.lock().unwrap() = None;
         self.subtitle_history.lock().unwrap().clear();
         *self.last_detection_time.lock().unwrap() = Instant::now();
-        info!("📺 Legendas resetadas (timeout)");
+        info!("📺 Legendas do overlay limpas (timeout)");
     }
 
-    /// Adiciona uma legenda traduzida ao histórico
+    /// Limpa o histórico completo da sessão
+    /// Chamado apenas manualmente pelo botão "Limpar historico"
+    pub fn clear_full_history(&self) {
+        self.full_history.lock().unwrap().clear();
+        info!("📺 Histórico completo limpo manualmente");
+    }
+
+    /// Adiciona uma legenda traduzida ao overlay e ao histórico completo
     pub fn add_translated_subtitle(&self, translated: String) {
-        let mut history = self.subtitle_history.lock().unwrap();
+        let entry = SubtitleEntry {
+            translated: translated.clone(),
+        };
 
-        // Adiciona a nova legenda
-        history.push(SubtitleEntry { translated });
+        // Adiciona ao overlay (legendas ativas na tela)
+        {
+            let mut history = self.subtitle_history.lock().unwrap();
+            history.push(entry.clone());
 
-        // Remove legendas antigas se exceder o limite
-        while history.len() > MAX_SUBTITLE_HISTORY {
-            history.remove(0);
+            while history.len() > MAX_SUBTITLE_HISTORY {
+                history.remove(0);
+            }
         }
 
-        info!("📺 Histórico de legendas: {} itens", history.len());
+        // Adiciona ao histórico completo (permanente na sessão)
+        {
+            let mut full = self.full_history.lock().unwrap();
+            full.push(entry);
+
+            // Limite maior pro histórico completo (500 legendas)
+            while full.len() > 500 {
+                full.remove(0);
+            }
+        }
+
+        let overlay_count = self.subtitle_history.lock().unwrap().len();
+        let full_count = self.full_history.lock().unwrap().len();
+        info!(
+            "📺 Legendas: {} no overlay, {} no historico",
+            overlay_count, full_count
+        );
+    }
+
+    /// Obtém o histórico completo da sessão (para aba Historico)
+    pub fn get_full_history(&self) -> Vec<SubtitleEntry> {
+        self.full_history.lock().unwrap().clone()
     }
 
     /// Obtém o histórico de legendas para exibição

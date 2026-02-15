@@ -54,6 +54,10 @@ struct OverlayApp {
     settings_status: Option<(String, std::time::Instant)>,
     /// Se já posicionou a janela de configurações (evita forçar posição todo frame)
     settings_positioned: bool,
+    /// Textura da imagem debug de pré-processamento (preview em tempo real)
+    debug_texture: Option<eframe::egui::TextureHandle>,
+    /// Quando a textura debug foi atualizada pela última vez
+    debug_texture_last_update: std::time::Instant,
 }
 
 impl eframe::App for OverlayApp {
@@ -400,6 +404,8 @@ impl eframe::App for OverlayApp {
                             cfg,
                             &self.state.subtitle_state,
                             &self.state.openai_request_count,
+                            &mut self.debug_texture,
+                            &mut self.debug_texture_last_update,
                         );
                     }
 
@@ -1245,6 +1251,8 @@ fn main() -> Result<()> {
                 settings_tab: 0,
                 settings_status: None,
                 settings_positioned: false,
+                debug_texture: None,
+                debug_texture_last_update: std::time::Instant::now(),
                 // last_window_size: (0.0, 0.0),
             }) as Box<dyn eframe::App>)
         }),
