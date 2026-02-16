@@ -11,12 +11,7 @@
     "width": 1365,
     "height": 150,
     "background_type": "solid",
-    "background_color": [
-      0,
-      0,
-      0,
-      235
-    ],
+    "background_color": [0, 0, 0, 235],
     "background_image_path": "backgrounds/custom.png",
     "show_background": false
   },
@@ -26,33 +21,18 @@
     "system_font_name": "Arial",
     "file_path": "fonts/Roboto-Regular.ttf",
     "size": 20.0,
-    "color": [
-      255,
-      255,
-      255,
-      255
-    ],
+    "color": [255, 255, 255, 255],
     "shadow": {
       "enabled": false,
       "offset_x": 5,
       "offset_y": 5,
-      "color": [
-        0,
-        0,
-        0,
-        180
-      ],
+      "color": [0, 0, 0, 180],
       "blur": 0
     },
     "outline": {
       "enabled": true,
       "width": 3,
-      "color": [
-        0,
-        0,
-        0,
-        255
-      ]
+      "color": [0, 0, 0, 255]
     }
   },
   "hotkeys": {
@@ -95,15 +75,15 @@
     "tts_enabled": false,
     "preprocess": {
       "enabled": true,
-      "grayscale": true,
+      "grayscale": false,
       "invert": false,
-      "contrast": 2.0,
-      "threshold": 185,
-      "save_debug_image": true,
-      "upscale": 2.0,
-      "blur": 1.5,
+      "contrast": 10.0,
+      "threshold": 0,
+      "save_debug_image": false,
+      "upscale": 1.0,
+      "blur": 0.0,
       "dilate": 1,
-      "erode": 0,
+      "erode": 1,
       "edge_detection": 0
     }
   },
@@ -118,10 +98,10 @@
   },
   "subtitle": {
     "region": {
-      "x": 660,
-      "y": 607,
-      "width": 720,
-      "height": 169
+      "x": 683,
+      "y": 1202,
+      "width": 1130,
+      "height": 155
     },
     "capture_interval_ms": 50,
     "min_display_secs": 3,
@@ -132,33 +112,18 @@
       "system_font_name": "Arial",
       "file_path": "fonts/Roboto-Regular.ttf",
       "size": 35.0,
-      "color": [
-        255,
-        255,
-        255,
-        255
-      ],
+      "color": [255, 255, 255, 255],
       "shadow": {
         "enabled": false,
         "offset_x": 5,
         "offset_y": 5,
-        "color": [
-          0,
-          0,
-          0,
-          180
-        ],
+        "color": [0, 0, 0, 180],
         "blur": 0
       },
       "outline": {
         "enabled": true,
         "width": 3,
-        "color": [
-          0,
-          0,
-          0,
-          255
-        ]
+        "color": [0, 0, 0, 255]
       }
     },
     "max_lines": 1,
@@ -166,19 +131,19 @@
       "enabled": true,
       "grayscale": false,
       "invert": false,
-      "contrast": 3.0,
-      "threshold": 185,
+      "contrast": 10.0,
+      "threshold": 160,
       "save_debug_image": true,
-      "upscale": 2.0,
+      "upscale": 1.5,
       "blur": 0.0,
-      "dilate": 2,
+      "dilate": 1,
       "erode": 1,
       "edge_detection": 0
     }
   },
   "openai": {
     "api_key": "",
-    "model": "gpt-5-mini",
+    "model": "gpt-4o-mini",
     "temperature": 0.3,
     "max_tokens": 1024,
     "system_prompt": "Você é um tradutor profissional de LEGENDAS DE JOGOS.\n\nContexto:\n- Jogo com temática Yakuza / crime japonês\n- Diálogos urbanos, adultos, cheios de gírias\n- Tom natural, coloquial, brasileiro\n\nRegras OBRIGATÓRIAS:\n- Traduza para PORTUGUÊS DO BRASIL\n- Priorize LOCALIZAÇÃO, não tradução literal\n- Use gírias brasileiras equivalentes quando fizer sentido\n- Mantenha palavrões quando existirem\n- Não suavize o tom\n- Preserve nomes próprios e honoríficos (-san, -kun, -sensei)\n- Preserve placeholders ({}, %s, %d)\n- Preserve quebras de linha\n- Preserve pontuação dramática (… — ! ?)\n\nFormato de saída:\n- Retorne APENAS um JSON array de strings\n- Mesma ordem do input\n- Sem comentários, sem explicações",
