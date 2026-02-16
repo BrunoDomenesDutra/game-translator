@@ -77,6 +77,32 @@ fn translation_font_id(size: f32) -> eframe::egui::FontId {
     eframe::egui::FontId::new(size, eframe::egui::FontFamily::Name("translation".into()))
 }
 
+/// Estima a área onde o overlay de legendas será exibido
+/// Retorna (x, y, width, height) em coordenadas lógicas (já com DPI aplicado)
+fn estimate_subtitle_overlay_area(
+    subtitle_region_y: f32,
+    max_lines: usize,
+    font_size: f32,
+    dpi_scale: f32,
+) -> (f32, f32, f32, f32) {
+    let screen_width_px =
+        unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) } as f32;
+
+    // Mantém a mesma margem lateral usada no modo legenda
+    let side_margin_px = 50.0;
+    let overlay_width = (screen_width_px - side_margin_px * 2.0) / dpi_scale;
+    let overlay_x = side_margin_px / dpi_scale;
+
+    // Estimativa de altura baseada em número de linhas + fonte
+    // (ajuda a visualizar mesmo sem legendas ativas)
+    let estimated_line_height = (font_size * 1.35).max(18.0);
+    let estimated_height = (max_lines.max(1) as f32 * estimated_line_height + 20.0).max(50.0);
+
+    let overlay_y = (subtitle_region_y / dpi_scale - estimated_height - 10.0).max(0.0);
+
+    (overlay_x, overlay_y, overlay_width, estimated_height)
+}
+
 impl eframe::App for OverlayApp {
     fn clear_color(&self, _visuals: &eframe::egui::Visuals) -> [f32; 4] {
         [0.0, 0.0, 0.0, 0.0] // Totalmente transparente
@@ -536,6 +562,158 @@ impl eframe::App for OverlayApp {
         } else {
             false
         };
+
+        // ====================================================================
+        // PREVIEW DE ÁREAS DE LEGENDA (captura + área de exibição)
+        // ====================================================================
+        let subtitle_areas_preview_active =
+            *self.state.subtitle_areas_preview_active.lock().unwrap();
+
+        if subtitle_areas_preview_active {
+            let (subtitle_region, subtitle_font_size, subtitle_max_lines) = {
+                let config = self.state.config.lock().unwrap();
+                (
+                    config.app_config.subtitle.region.clone(),
+                    config.app_config.subtitle.font.size,
+                    config.app_config.subtitle.max_lines,
+                )
+            };
+
+            let scale = self.state.dpi_scale;
+            let screen_width =
+                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CXSCREEN) }
+                    as f32;
+            let screen_height =
+                unsafe { winapi::um::winuser::GetSystemMetrics(winapi::um::winuser::SM_CYSCREEN) }
+                    as f32;
+
+            let capture_rect_screen = eframe::egui::Rect::from_min_size(
+                eframe::egui::pos2(
+                    subtitle_region.x as f32 / scale,
+                    subtitle_region.y as f32 / scale,
+                ),
+                eframe::egui::vec2(
+                    subtitle_region.width as f32 / scale,
+                    subtitle_region.height as f32 / scale,
+                ),
+            );
+
+            let (overlay_x, overlay_y, overlay_width, overlay_height) =
+                estimate_subtitle_overlay_area(
+                    subtitle_region.y as f32,
+                    subtitle_max_lines,
+                    subtitle_font_size,
+                    scale,
+                );
+
+            let display_rect_screen = eframe::egui::Rect::from_min_size(
+                eframe::egui::pos2(overlay_x, overlay_y),
+                eframe::egui::vec2(overlay_width, overlay_height),
+            );
+
+            // Janela cobre apenas a união das duas áreas (evita ocupar tela inteira)
+            let preview_padding = 40.0;
+            let screen_w_logical = screen_width / scale;
+            let screen_h_logical = screen_height / scale;
+
+            let mut window_x = (capture_rect_screen.min.x.min(display_rect_screen.min.x)
+                - preview_padding)
+                .max(0.0);
+            let mut window_y = (capture_rect_screen.min.y.min(display_rect_screen.min.y)
+                - preview_padding)
+                .max(0.0);
+            let mut window_right = (capture_rect_screen.max.x.max(display_rect_screen.max.x)
+                + preview_padding)
+                .min(screen_w_logical);
+            let mut window_bottom = (capture_rect_screen.max.y.max(display_rect_screen.max.y)
+                + preview_padding)
+                .min(screen_h_logical);
+
+            // Garante tamanho mínimo para evitar viewport inválida
+            if window_right <= window_x {
+                window_right = (window_x + 1.0).min(screen_w_logical);
+            }
+            if window_bottom <= window_y {
+                window_bottom = (window_y + 1.0).min(screen_h_logical);
+            }
+
+            // Ajusta quando o clamp no limite da tela deixou origem fora do intervalo
+            if window_x >= window_right {
+                window_x = (window_right - 1.0).max(0.0);
+            }
+            if window_y >= window_bottom {
+                window_y = (window_bottom - 1.0).max(0.0);
+            }
+
+            let window_width = window_right - window_x;
+            let window_height = window_bottom - window_y;
+
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::OuterPosition(
+                eframe::egui::pos2(window_x, window_y),
+            ));
+            ctx.send_viewport_cmd(eframe::egui::ViewportCommand::InnerSize(eframe::egui::vec2(
+                window_width,
+                window_height,
+            )));
+
+            let capture_rect = eframe::egui::Rect::from_min_size(
+                eframe::egui::pos2(
+                    capture_rect_screen.min.x - window_x,
+                    capture_rect_screen.min.y - window_y,
+                ),
+                capture_rect_screen.size(),
+            );
+            let display_rect = eframe::egui::Rect::from_min_size(
+                eframe::egui::pos2(
+                    display_rect_screen.min.x - window_x,
+                    display_rect_screen.min.y - window_y,
+                ),
+                display_rect_screen.size(),
+            );
+
+            eframe::egui::CentralPanel::default()
+                .frame(eframe::egui::Frame::none().fill(eframe::egui::Color32::TRANSPARENT))
+                .show(ctx, |ui| {
+                    let stroke_capture = eframe::egui::Stroke::new(
+                        3.0,
+                        eframe::egui::Color32::from_rgb(255, 92, 92),
+                    );
+                    let stroke_display = eframe::egui::Stroke::new(
+                        3.0,
+                        eframe::egui::Color32::from_rgb(80, 200, 255),
+                    );
+
+                    ui.painter().rect_stroke(
+                        capture_rect,
+                        0.0,
+                        stroke_capture,
+                    );
+                    ui.painter().rect_stroke(
+                        display_rect,
+                        0.0,
+                        stroke_display,
+                    );
+
+                    ui.painter().text(
+                        capture_rect.left_top() + eframe::egui::vec2(8.0, 8.0),
+                        eframe::egui::Align2::LEFT_TOP,
+                        "CAPTURA DE LEGENDA",
+                        eframe::egui::FontId::proportional(18.0),
+                        stroke_capture.color,
+                    );
+
+                    ui.painter().text(
+                        display_rect.left_top() + eframe::egui::vec2(8.0, 8.0),
+                        eframe::egui::Align2::LEFT_TOP,
+                        "ÁREA DE EXIBIÇÃO DA TRADUÇÃO",
+                        eframe::egui::FontId::proportional(18.0),
+                        stroke_display.color,
+                    );
+                });
+
+            ctx.request_repaint();
+            return;
+        }
 
         // ====================================================================
         // MODO LEGENDA: Exibe histórico de legendas acima da região
@@ -1082,6 +1260,23 @@ fn start_hotkey_thread(state: AppState) {
                             .send(AppCommand::OpenSubtitleRegionSelector)
                         {
                             error!("❌ Erro ao enviar comando: {}", e);
+                        }
+                    }
+
+                    hotkey::HotkeyAction::ToggleSubtitleAreasPreview => {
+                        let mut preview_active =
+                            state.subtitle_areas_preview_active.lock().unwrap();
+                        *preview_active = !*preview_active;
+
+                        info!("");
+                        if *preview_active {
+                            info!("🧭 ============================================");
+                            info!("🧭 PREVIEW DE ÁREAS DE LEGENDA: ✅ ATIVADO");
+                            info!("🧭 ============================================");
+                        } else {
+                            info!("🧭 ============================================");
+                            info!("🧭 PREVIEW DE ÁREAS DE LEGENDA: ❌ DESATIVADO");
+                            info!("🧭 ============================================");
                         }
                     }
 

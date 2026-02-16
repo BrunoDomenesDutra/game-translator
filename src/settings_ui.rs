@@ -519,6 +519,14 @@ fn render_hotkeys_tab(ui: &mut eframe::egui::Ui, cfg: &mut config::AppConfig) {
         );
         render_hotkey_combo(
             ui,
+            "hotkey_toggle_subtitle_areas_preview",
+            "Mostrar areas:",
+            &mut cfg.hotkeys.toggle_subtitle_areas_preview,
+            &modificadores,
+            &teclas_disponiveis,
+        );
+        render_hotkey_combo(
+            ui,
             "hotkey_toggle_subtitle",
             "Ligar/Desligar:",
             &mut cfg.hotkeys.toggle_subtitle_mode,

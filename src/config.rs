@@ -106,6 +106,9 @@ pub struct HotkeyConfig {
     pub translate_region: HotkeyBinding,
     pub select_region: HotkeyBinding,
     pub select_subtitle_region: HotkeyBinding,
+    /// Atalho para mostrar/ocultar preview das áreas de legenda
+    #[serde(default = "default_toggle_subtitle_areas_preview_binding")]
+    pub toggle_subtitle_areas_preview: HotkeyBinding,
     pub toggle_subtitle_mode: HotkeyBinding,
     pub hide_translation: HotkeyBinding,
     /// Atalho pra abrir configurações (sempre Numpad5 por padrão)
@@ -117,6 +120,10 @@ fn default_open_settings_binding() -> HotkeyBinding {
     HotkeyBinding::key_only("Numpad5")
 }
 
+fn default_toggle_subtitle_areas_preview_binding() -> HotkeyBinding {
+    HotkeyBinding::key_only("Numpad2")
+}
+
 impl Default for HotkeyConfig {
     fn default() -> Self {
         HotkeyConfig {
@@ -124,6 +131,7 @@ impl Default for HotkeyConfig {
             translate_region: HotkeyBinding::key_only("NumpadAdd"),
             select_region: HotkeyBinding::key_only("NumpadMultiply"),
             select_subtitle_region: HotkeyBinding::key_only("NumpadDivide"),
+            toggle_subtitle_areas_preview: HotkeyBinding::key_only("Numpad2"),
             toggle_subtitle_mode: HotkeyBinding::key_only("Numpad0"),
             hide_translation: HotkeyBinding::key_only("NumpadDecimal"),
             open_settings: HotkeyBinding::key_only("Numpad5"),

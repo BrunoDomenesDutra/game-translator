@@ -90,6 +90,7 @@ pub fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyActi
             }
             hotkey::HotkeyAction::SelectRegion
             | hotkey::HotkeyAction::SelectSubtitleRegion
+            | hotkey::HotkeyAction::ToggleSubtitleAreasPreview
             | hotkey::HotkeyAction::ToggleSubtitleMode
             | hotkey::HotkeyAction::HideTranslation
             | hotkey::HotkeyAction::OpenSettings => {
@@ -147,6 +148,7 @@ pub fn process_translation_blocking(state: &AppState, action: hotkey::HotkeyActi
                 anyhow::bail!("SelectRegion não deveria chamar process_translation")
             }
             hotkey::HotkeyAction::SelectSubtitleRegion
+            | hotkey::HotkeyAction::ToggleSubtitleAreasPreview
             | hotkey::HotkeyAction::ToggleSubtitleMode
             | hotkey::HotkeyAction::HideTranslation
             | hotkey::HotkeyAction::OpenSettings => {

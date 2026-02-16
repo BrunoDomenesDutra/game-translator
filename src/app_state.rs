@@ -74,6 +74,8 @@ pub struct AppState {
     pub translation_cache: cache::TranslationCache,
     /// Indica se o modo legenda está ativo
     pub subtitle_mode_active: Arc<Mutex<bool>>,
+    /// Controla se o preview das áreas de legenda está visível
+    pub subtitle_areas_preview_active: Arc<Mutex<bool>>,
     /// Estado do sistema de legendas
     pub subtitle_state: subtitle::SubtitleState,
     /// Controla se o overlay deve ficar escondido (durante captura)
@@ -110,6 +112,7 @@ impl AppState {
             command_sender,
             translation_cache,
             subtitle_mode_active: Arc::new(Mutex::new(false)),
+            subtitle_areas_preview_active: Arc::new(Mutex::new(false)),
             subtitle_state,
             overlay_hidden: Arc::new(Mutex::new(false)),
             settings_mode: Arc::new(Mutex::new(false)),

@@ -45,6 +45,8 @@ pub enum HotkeyAction {
     SelectRegion,
     /// Abre o seletor de região de legendas
     SelectSubtitleRegion,
+    /// Mostra/oculta o preview visual das áreas de legenda
+    ToggleSubtitleAreasPreview,
     /// Liga/desliga o modo de legendas em tempo real
     ToggleSubtitleMode,
     /// Esconde a tradução atual
@@ -182,6 +184,10 @@ impl HotkeyManager {
             parse_binding(
                 &hotkeys.select_subtitle_region,
                 HotkeyAction::SelectSubtitleRegion,
+            ),
+            parse_binding(
+                &hotkeys.toggle_subtitle_areas_preview,
+                HotkeyAction::ToggleSubtitleAreasPreview,
             ),
             parse_binding(
                 &hotkeys.toggle_subtitle_mode,
