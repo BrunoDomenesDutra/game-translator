@@ -737,11 +737,16 @@ fn render_history_tab(ui: &mut eframe::egui::Ui, subtitle_state: &subtitle::Subt
             ui.label("Ative o modo legenda para comecar.");
         } else {
             // Lista as legendas (mais recente em cima)
+            // Usa Label::wrap() pra que textos longos quebrem na largura
+            // disponível em vez de expandir o container e ultrapassar a janela.
             for (i, entry) in history.iter().rev().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.label(eframe::egui::RichText::new(format!("{}.", i + 1)).weak());
-                    ui.label(&entry.translated);
-                });
+                // Número da legenda (fraco/cinza)
+                ui.label(eframe::egui::RichText::new(format!("{}.", i + 1)).weak());
+
+                // Texto da tradução com wrap ativado
+                // .wrap() faz o texto quebrar automaticamente na largura
+                // do grupo, em vez de forçar scroll horizontal ou estourar
+                ui.add(eframe::egui::Label::new(&entry.translated).wrap());
 
                 if i < history.len() - 1 {
                     ui.separator();
